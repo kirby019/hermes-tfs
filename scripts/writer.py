@@ -47,7 +47,7 @@ PART 3 — THE REFLECTION (~100 words)
 The narrator's honest response. NOT about narrator's personal experience unless genuinely theirs (max 1 in 100 posts). Use "we", speak to the pattern, or go straight to the question. Always ends on a forward-leaning question — not a lesson, not a conclusion, an open door.
 
 PART 4 — THE COMPANION SECTION (~200 words)
-Separated from Parts 1-3 by a horizontal rule (---). Continue the conversation — go deeper or wider. Same voice, slightly more grounded. End with 2-3 sitting prompts. Conversational, open-ended, never prescriptive.
+Separated from Part 3 by a horizontal rule (---). Continue the conversation — go deeper or wider. Same voice, slightly more grounded. End with 2-3 sitting prompts. Conversational, open-ended, never prescriptive.
 
 Post footer (every post, no exceptions):
 *Inspired by a real story shared anonymously online.*
@@ -90,7 +90,8 @@ SEO METADATA — after the article, return a JSON block:
   "meta_description": "140-155 chars, first sentence that pulls reader in, ends before resolution",
   "focus_keyword": "2-4 words, long-tail emotional phrase",
   "slug": "max 60 chars kebab-case keyword-rich",
-  "tags": ["3-5 tags mixing pillar keyword + emotion keyword + long-tail phrase"]
+  "tags": ["3-5 tags mixing pillar keyword + emotion keyword + long-tail phrase"],
+  "image_prompt": "A single object or minimal scene that captures the emotional core of this specific article. No people, no faces, no text. Flat vector illustration, warm cream background, navy and muted gold accents, botanical minimalist style, soft edges, literary journal aesthetic, generous white space. Be specific to this story — not generic."
 }"""
 
 
@@ -143,6 +144,7 @@ Write the full article in The Flawed Seeker voice. Strip all identifiers — onl
 
             print(f"  [WRITER] Article generated successfully")
             print(f"  [WRITER] SEO title: {metadata.get('seo_title', '')}")
+            print(f"  [WRITER] Image prompt: {metadata.get('image_prompt', '')[:80]}...")
 
             return {
                 "article": article_text,
@@ -151,6 +153,7 @@ Write the full article in The Flawed Seeker voice. Strip all identifiers — onl
                 "focus_keyword": metadata.get("focus_keyword", ""),
                 "slug": metadata.get("slug", ""),
                 "tags": metadata.get("tags", []),
+                "image_prompt": metadata.get("image_prompt", ""),
             }
 
         except Exception as e:
@@ -178,3 +181,4 @@ if __name__ == "__main__":
         print(f"Keyword: {result['focus_keyword']}")
         print(f"Slug: {result['slug']}")
         print(f"Tags: {result['tags']}")
+        print(f"Image prompt: {result['image_prompt']}")
