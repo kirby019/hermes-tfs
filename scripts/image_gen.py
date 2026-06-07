@@ -1,11 +1,11 @@
 """
-image_gen.py — DALL-E 3 image generator for Hermes
-Generates a unique illustration for each article.
+image_gen.py — Image generator for Hermes
+Generates a unique illustration for each article using gpt-image-1.
 """
 
 import openai
 import os
-import requests
+import base64
 from datetime import date
 from dotenv import load_dotenv
 
@@ -25,20 +25,15 @@ PILLAR_OBJECTS = {
     9: "a winding path leading up a gentle hill that disappears into soft mist, minimal botanical border",
 }
 
-BASE_PROMPT = "Flat vector illustration, warm cream background (#F5F0E8), navy and muted gold accents, {object}, botanical minimalist style, no people, no faces, no text, soft edges, literary journal aesthetic, generous white space"
+BASE_PROMPT = "Flat vector illustration, warm cream background, navy and muted gold accents, {object}, botanical minimalist style, no people, no faces, no text, soft edges, literary journal aesthetic, generous white space"
 
 
 def generate_image(pillar_number, today=None):
-    """
-    Generate a DALL-E 3 illustration for today's pillar.
-    Returns path to saved image, or None if failed.
-    """
     if today is None:
         today = date.today().isoformat()
 
     output_path = f"/home/hermes/images/generated/{today}.png"
 
-    # Check if already generated today
     if os.path.exists(output_path):
         print(f"[IMAGE] Image already exists for today: {output_path}")
         return output_path
@@ -46,30 +41,23 @@ def generate_image(pillar_number, today=None):
     pillar_object = PILLAR_OBJECTS.get(pillar_number, PILLAR_OBJECTS[1])
     prompt = BASE_PROMPT.format(object=pillar_object)
 
-    print(f"\n[IMAGE] Generating DALL-E image for pillar {pillar_number}")
+    print(f"\n[IMAGE] Generating image for pillar {pillar_number}")
     print(f"[IMAGE] Prompt: {prompt[:80]}...")
 
     try:
         response = CLIENT.images.generate(
-            model="dall-e-3",
+            model="gpt-image-1",
             prompt=prompt,
             size="1024x1024",
             quality="standard",
             n=1,
         )
 
-        image_url = response.data[0].url
-        print(f"[IMAGE] Image generated — downloading...")
-
-        img_response = requests.get(image_url, timeout=30)
-        if img_response.status_code == 200:
-            with open(output_path, "wb") as f:
-                f.write(img_response.content)
-            print(f"[IMAGE] Saved to {output_path}")
-            return output_path
-        else:
-            print(f"[IMAGE] Failed to download image: HTTP {img_response.status_code}")
-            return None
+        image_data = base64.b64decode(response.data[0].b64_json)
+        with open(output_path, "wb") as f:
+            f.write(image_data)
+        print(f"[IMAGE] Saved to {output_path}")
+        return output_path
 
     except Exception as e:
         print(f"[IMAGE] Error: {e}")
@@ -77,7 +65,6 @@ def generate_image(pillar_number, today=None):
 
 
 def get_fallback_image(pillar_number):
-    """Return a default pillar image if DALL-E fails."""
     fallback = f"/home/hermes/images/generated/fallback-{pillar_number}.png"
     if os.path.exists(fallback):
         return fallback
