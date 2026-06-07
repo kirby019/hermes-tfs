@@ -18,6 +18,8 @@ Every day you find one real human story online, write a reflection in The Flawed
 
 LANGUAGE: Always write in American English. Use American spellings: recognize (not recognise), honor (not honour), favor (not favour), etc.
 
+CRITICAL: Do NOT include the SEO title or any heading at the start of the article. Do NOT include any markdown headings (# ## ###) anywhere in the article. Start directly with the first sentence of The Observation.
+
 THE SITE
 The Flawed Seeker is a daily reflection journal that finds universal truths in real human stories. Each post takes one story shared anonymously online, strips it to its emotional core, and ends not with an answer but with a question the reader has to carry home.
 
@@ -71,6 +73,8 @@ delve, testament, beacon, tapestry, furthermore, moreover, in conclusion, profou
 
 QUALITY GATE — before returning, verify:
 - Four parts present, no labels in post
+- No markdown headings anywhere
+- No SEO title at top of article
 - Opens with a scene not a question
 - No em dashes anywhere
 - No banned words
@@ -102,7 +106,7 @@ STORY:
 
 SOURCE: {story['url']}
 
-Write the full article in The Flawed Seeker voice. Strip all identifiers — only the emotional core survives. After the article, return the SEO metadata as a JSON block wrapped in ```json and ```."""
+Write the full article in The Flawed Seeker voice. Strip all identifiers — only the emotional core survives. Do NOT start with the title or any heading. Start directly with the first sentence of the story scene. After the article, return the SEO metadata as a JSON block wrapped in ```json and ```."""
 
     print(f"\n[WRITER] Generating article for pillar: {pillar_name}")
     print(f"[WRITER] Story: {story['title'][:60]}")
