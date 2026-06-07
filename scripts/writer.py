@@ -95,7 +95,26 @@ SEO METADATA — after the article, return a JSON block:
 }"""
 
 
-def generate_article(story, pillar_name):
+def generate_article(story, pillar_name, recent_posts=None):
+    # Build avoidance context — all same-pillar, last 20 others
+    avoidance_block = ""
+    if recent_posts:
+        same_pillar = [p["title"] for p in recent_posts if p.get("pillar") == pillar_name]
+        other_pillars = [p["title"] for p in recent_posts if p.get("pillar") != pillar_name][-20:]
+
+        lines = []
+        if same_pillar:
+            lines.append(f"ALL previous posts in THIS pillar ({pillar_name}) — do NOT repeat these angles, emotions, or situations:")
+            for t in same_pillar:
+                lines.append(f"  - {t}")
+        if other_pillars:
+            lines.append("Recent posts across other pillars — avoid crossing into the same emotional territory:")
+            for t in other_pillars:
+                lines.append(f"  - {t}")
+
+        if lines:
+            avoidance_block = "\n\nMEMORY — AVOID REPEATING:\n" + "\n".join(lines) + "\n\nThis site has covered all of the above. Find a genuinely fresh angle."
+
     prompt = f"""Today's pillar: {pillar_name}
 
 Here is the story to write about:
@@ -105,12 +124,14 @@ TITLE: {story['title']}
 STORY:
 {story['body'][:2000]}
 
-SOURCE: {story['url']}
+SOURCE: {story['url']}{avoidance_block}
 
 Write the full article in The Flawed Seeker voice. Strip all identifiers — only the emotional core survives. Do NOT start with the title or any heading. Start directly with the first sentence of the story scene. After the article, return the SEO metadata as a JSON block wrapped in ```json and ```."""
 
     print(f"\n[WRITER] Generating article for pillar: {pillar_name}")
     print(f"[WRITER] Story: {story['title'][:60]}")
+    if recent_posts:
+        print(f"[WRITER] Memory: {len(recent_posts)} posts loaded")
 
     for attempt in range(2):
         try:
@@ -171,14 +192,18 @@ if __name__ == "__main__":
         "source": "test",
     }
 
-    result = generate_article(test_story, "Burnout & Exhaustion")
+    test_recent = [
+        {"title": "She Quit After 12 Years and Felt Nothing", "pillar": "Burnout & Exhaustion"},
+        {"title": "He Lost His Job to Automation and Felt Relief", "pillar": "Burnout & Exhaustion"},
+        {"title": "He Watches the Clock Every Friday Afternoon", "pillar": "Relationships & Regret"},
+    ]
+
+    result = generate_article(test_story, "Burnout & Exhaustion", recent_posts=test_recent)
     if result:
         print("\n--- ARTICLE ---")
         print(result["article"])
         print("\n--- METADATA ---")
         print(f"Title: {result['seo_title']}")
-        print(f"Description: {result['meta_description']}")
-        print(f"Keyword: {result['focus_keyword']}")
         print(f"Slug: {result['slug']}")
         print(f"Tags: {result['tags']}")
         print(f"Image prompt: {result['image_prompt']}")
