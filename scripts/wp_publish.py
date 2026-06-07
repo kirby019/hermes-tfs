@@ -7,6 +7,7 @@ import requests
 import json
 import os
 import base64
+import time
 from dotenv import load_dotenv
 
 load_dotenv("/home/hermes/.env")
@@ -15,7 +16,6 @@ WP_URL = os.getenv("WP_URL")
 WP_USERNAME = os.getenv("WP_USERNAME")
 WP_APP_PASSWORD = os.getenv("WP_APP_PASSWORD")
 
-# Build auth header
 credentials = f"{WP_USERNAME}:{WP_APP_PASSWORD}"
 token = base64.b64encode(credentials.encode()).decode("utf-8")
 HEADERS = {
@@ -24,36 +24,16 @@ HEADERS = {
 }
 
 CATEGORY_IDS = {
-    "Burnout & Exhaustion": None,
-    "Relationships & Regret": None,
-    "Family & Belonging": None,
-    "Forgiveness": None,
-    "Faith & Doubt": None,
-    "Money & Enough": None,
-    "Friendship & Loneliness": None,
-    "Mid-life Drift": None,
-    "Ambition & Peace": None,
+    "Burnout & Exhaustion": 17,
+    "Relationships & Regret": 9,
+    "Family & Belonging": 10,
+    "Forgiveness": 11,
+    "Faith & Doubt": 12,
+    "Money & Enough": 13,
+    "Friendship & Loneliness": 14,
+    "Mid-life Drift": 15,
+    "Ambition & Peace": 19,
 }
-
-
-def get_category_ids():
-    """Fetch category IDs from WordPress."""
-    try:
-        response = requests.get(
-            f"{WP_URL}/wp-json/wp/v2/categories?per_page=100",
-            headers=HEADERS,
-            timeout=15
-        )
-        if response.status_code == 200:
-            categories = response.json()
-            for cat in categories:
-                if cat["name"] in CATEGORY_IDS:
-                    CATEGORY_IDS[cat["name"]] = cat["id"]
-            print(f"[WP] Categories loaded: {CATEGORY_IDS}")
-        else:
-            print(f"[WP] Failed to fetch categories: HTTP {response.status_code}")
-    except Exception as e:
-        print(f"[WP] Error fetching categories: {e}")
 
 
 def upload_image(image_path, filename):
@@ -94,7 +74,6 @@ def get_or_create_tags(tag_names):
     tag_ids = []
     for tag_name in tag_names:
         try:
-            # Search for existing tag
             response = requests.get(
                 f"{WP_URL}/wp-json/wp/v2/tags?search={tag_name}",
                 headers=HEADERS,
@@ -106,7 +85,6 @@ def get_or_create_tags(tag_names):
                     tag_ids.append(tags[0]["id"])
                     continue
 
-            # Create new tag
             response = requests.post(
                 f"{WP_URL}/wp-json/wp/v2/tags",
                 headers=HEADERS,
@@ -150,25 +128,19 @@ def publish_post(article_data, pillar_name, image_path, today):
     """
     print(f"\n[WP] Publishing post: {article_data['seo_title']}")
 
-    # Load category IDs
-    get_category_ids()
     category_id = CATEGORY_IDS.get(pillar_name)
     if not category_id:
         print(f"[WP] Warning: category not found for {pillar_name}")
 
-    # Upload featured image
     image_id = None
     if image_path and os.path.exists(image_path):
         filename = f"tfs-{today}.png"
         image_id = upload_image(image_path, filename)
 
-    # Get tag IDs
     tag_ids = get_or_create_tags(article_data.get("tags", []))
 
-    # Format content
     content_html = format_content(article_data["article"])
 
-    # Build post payload
     post_data = {
         "title": article_data["seo_title"],
         "content": content_html,
@@ -186,7 +158,6 @@ def publish_post(article_data, pillar_name, image_path, today):
     if image_id:
         post_data["featured_media"] = image_id
 
-    # Publish post
     for attempt in range(2):
         try:
             response = requests.post(
@@ -205,7 +176,6 @@ def publish_post(article_data, pillar_name, image_path, today):
                 print(f"[WP] Publish failed (attempt {attempt + 1}): HTTP {response.status_code}")
                 print(response.text[:300])
                 if attempt == 0:
-                    import time
                     time.sleep(60)
 
         except Exception as e:
@@ -215,17 +185,16 @@ def publish_post(article_data, pillar_name, image_path, today):
 
 
 if __name__ == "__main__":
-    # Test with dummy data
     test_article = {
-        "article": "She spent twelve years in the same building.\n\nThen yesterday she submitted the email.\n\nHer manager said okay.\n\nThat was it.\n\n---\n\nWe think leaving will feel like opening a door.\n\nSometimes twelve years fits into one word: okay.\n\nWhat do you do when you get what you wanted and it doesn't feel like winning?",
+        "article": "She spent twelve years in the same building. Same desk, same login, same coffee machine that broke every third Tuesday. Then yesterday she submitted the email. Her hands shook. She expected relief. She expected freedom. Instead she sat in her car for forty-five minutes and stared at the steering wheel.\n\nHer manager said okay.\n\nThat was it.\n\n---\n\nWe think leaving will feel like opening a door. We rehearse the moment. We imagine the weight lifting. But sometimes freedom arrives and we don't recognise it. Sometimes we sit in parking lots because our bodies haven't caught up to the decision our minds already made. Sometimes twelve years fits into one word: okay.\n\nThe shaking hands knew something the resignation letter didn't.\n\n---\n\nShe thought she would know what she felt. Not that she left, but that she expected clarity on the other side. Like crossing a finish line would change the fact that she doesn't know how to stand still without something to push against.\n\nWhat do you do when you get what you wanted and it doesn't feel like winning?\n\n*Inspired by a real story shared anonymously online.*",
         "seo_title": "She Quit After 12 Years and Felt Nothing",
-        "meta_description": "She expected relief when she finally left. Instead she sat in her car for forty-five minutes, not knowing what she felt.",
+        "meta_description": "She expected relief when she finally left. Instead she sat in her car for forty-five minutes, not knowing what she felt. Twelve years, and her manager just said okay.",
         "focus_keyword": "quitting job feeling empty",
-        "slug": "quit-after-twelve-years-felt-nothing",
+        "slug": "quit-after-twelve-years-felt-nothing-2",
         "tags": ["burnout", "leaving job", "career burnout"],
     }
 
-    today = "2026-06-07-test"
+    today = "2026-06-07-test2"
     result = publish_post(test_article, "Burnout & Exhaustion", None, today)
     if result:
         print(f"\n[WP] Success: {result}")
