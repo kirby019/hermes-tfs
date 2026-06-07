@@ -1,22 +1,21 @@
 """
-run.py — Main pipeline orchestrator for Hermes
-Runs daily: scrape → write → image → pin → publish → log
+run.py — Hermes orchestrator
+Runs the full daily pipeline: scrape → write → image → pin → publish → pinterest
 """
 
 import json
 import os
 import sys
 from datetime import date
-from dotenv import load_dotenv
 
-load_dotenv("/home/hermes/.env")
+sys.path.insert(0, "/home/hermes/scripts")
 
 from scraper import scrape
 from writer import generate_article
-from image_gen import generate_image, get_fallback_image
+from image_gen import generate_image
 from pin_gen import generate_pin
 from wp_publish import publish_post
-from pinterest import post_pin
+from pinterest import post_to_pinterest
 
 STATE_FILE = "/home/hermes/state.json"
 LOG_DIR = "/home/hermes/logs"
@@ -51,147 +50,110 @@ def save_state(state):
         json.dump(state, f, indent=2)
 
 
-def next_pillar(state):
-    current = state["next_pillar"]
-    rotation = state["pillar_rotation"]
-    current_index = rotation.index(current)
-    next_index = (current_index + 1) % len(rotation)
-    state["next_pillar"] = rotation[next_index]
-    return current
-
-
-def write_log(today, log_data):
+def save_log(today, log_data):
     os.makedirs(LOG_DIR, exist_ok=True)
     log_path = f"{LOG_DIR}/{today}.json"
     with open(log_path, "w") as f:
         json.dump(log_data, f, indent=2)
-    print(f"\n[RUN] Log saved: {log_path}")
+    print(f"[RUN] Log saved: {log_path}")
 
 
-def run():
+def main():
     today = date.today().isoformat()
-    print(f"\n{'='*50}")
+    state = load_state()
+
+    print("=" * 50)
     print(f"[RUN] Hermes starting — {today}")
-    print(f"{'='*50}")
+    print("=" * 50)
+
+    pillar_number = state.get("next_pillar", 1)
+    pillar_name = PILLAR_NAMES.get(pillar_number, "Burnout & Exhaustion")
+    print(f"[RUN] Today's pillar: {pillar_name} (#{pillar_number})")
 
     log = {
         "date": today,
-        "status": "started",
-        "pillar": None,
-        "story_url": None,
-        "article_title": None,
-        "post_url": None,
-        "image_path": None,
-        "pin_path": None,
-        "pinterest_url": None,
-        "errors": [],
+        "pillar": pillar_name,
+        "pillar_number": pillar_number,
+        "steps": {},
     }
 
-    # Load state
-    state = load_state()
-    pillar_number = next_pillar(state)
-    pillar_name = PILLAR_NAMES[pillar_number]
-    log["pillar"] = pillar_name
-
-    print(f"[RUN] Today's pillar: {pillar_name} (#{pillar_number})")
-
-    # STEP 1 — SCRAPE
+    # Step 1: Scrape
     print(f"\n[RUN] Step 1: Scraping story...")
     story = scrape(pillar_number)
     if not story:
-        log["status"] = "failed"
-        log["errors"].append("No story found")
-        write_log(today, log)
-        print("[RUN] No story found — exiting")
-        return False
-
-    log["story_url"] = story.get("url", "")
+        print("[RUN] No story found — aborting")
+        log["steps"]["scrape"] = "failed"
+        save_log(today, log)
+        return
+    log["steps"]["scrape"] = story["url"]
     print(f"[RUN] Story found: {story['title'][:60]}")
 
-    # STEP 2 — GENERATE ARTICLE
+    # Step 2: Generate article
     print(f"\n[RUN] Step 2: Generating article...")
     article_data = generate_article(story, pillar_name)
     if not article_data:
-        log["status"] = "failed"
-        log["errors"].append("Article generation failed")
-        write_log(today, log)
-        print("[RUN] Article generation failed — exiting")
-        return False
-
-    log["article_title"] = article_data["seo_title"]
+        print("[RUN] Article generation failed — aborting")
+        log["steps"]["write"] = "failed"
+        save_log(today, log)
+        return
+    log["steps"]["write"] = article_data["seo_title"]
     print(f"[RUN] Article ready: {article_data['seo_title']}")
 
-    # STEP 3 — GENERATE IMAGE
+    # Step 3: Generate image (use article-specific prompt from Claude)
     print(f"\n[RUN] Step 3: Generating image...")
-    image_path = generate_image(pillar_number, today)
-    if not image_path:
-        image_path = get_fallback_image(pillar_number)
-        if image_path:
-            print(f"[RUN] Using fallback image")
-            log["errors"].append("DALL-E failed — used fallback image")
-        else:
-            print(f"[RUN] No image available — continuing without image")
-            log["errors"].append("No image available")
+    custom_prompt = article_data.get("image_prompt", "")
+    image_path = generate_image(pillar_number, today, custom_prompt=custom_prompt if custom_prompt else None)
+    log["steps"]["image"] = image_path or "failed"
 
-    log["image_path"] = image_path
-
-    # STEP 4 — GENERATE PIN
+    # Step 4: Generate Pinterest pin
     print(f"\n[RUN] Step 4: Generating Pinterest pin...")
     pin_path = None
     if image_path:
+        from pin_gen import generate_pin
         pin_path = generate_pin(article_data["seo_title"], image_path, today)
-    log["pin_path"] = pin_path
+        log["steps"]["pin"] = pin_path or "failed"
 
-    # STEP 5 — PUBLISH TO WORDPRESS
+    # Step 5: Publish to WordPress
     print(f"\n[RUN] Step 5: Publishing to WordPress...")
     post_url = publish_post(article_data, pillar_name, image_path, today)
     if not post_url:
-        log["status"] = "failed"
-        log["errors"].append("WordPress publish failed")
-        write_log(today, log)
-        print("[RUN] WordPress publish failed — exiting")
-        return False
-
-    log["post_url"] = post_url
+        print("[RUN] WordPress publish failed — aborting")
+        log["steps"]["publish"] = "failed"
+        save_log(today, log)
+        return
+    log["steps"]["publish"] = post_url
     print(f"[RUN] Post live: {post_url}")
 
-    # STEP 6 — POST TO PINTEREST
+    # Step 6: Post to Pinterest
     print(f"\n[RUN] Step 6: Posting to Pinterest...")
-    if pin_path and os.path.exists(pin_path):
-        pinterest_url = post_pin(
-            article_data["seo_title"],
-            article_data["meta_description"],
-            post_url,
-            pin_path,
-            pillar_name,
-        )
-        if pinterest_url:
-            log["pinterest_url"] = pinterest_url
-        else:
-            log["errors"].append("Pinterest post failed — will retry next run")
-            print("[RUN] Pinterest failed — logged for retry")
+    pinterest_result = post_to_pinterest(
+        title=article_data["seo_title"],
+        post_url=post_url,
+        pin_image_path=pin_path,
+        pillar_name=pillar_name,
+    )
+    if pinterest_result:
+        log["steps"]["pinterest"] = pinterest_result
     else:
-        print("[RUN] No pin image — skipping Pinterest")
-        log["errors"].append("No pin image — Pinterest skipped")
+        log["steps"]["pinterest"] = "failed — retry when Standard access approved"
+        print("[RUN] Pinterest failed — logged for retry")
 
-    # STEP 7 — UPDATE STATE AND LOG
+    # Update state
+    next_pillar = (pillar_number % 9) + 1
     state["last_run"] = today
+    state["next_pillar"] = next_pillar
     state["posts_published"] = state.get("posts_published", 0) + 1
     save_state(state)
 
-    log["status"] = "success"
-    write_log(today, log)
+    save_log(today, log)
 
-    print(f"\n{'='*50}")
+    print("\n" + "=" * 50)
     print(f"[RUN] Hermes complete!")
     print(f"[RUN] Article: {article_data['seo_title']}")
     print(f"[RUN] Post: {post_url}")
     print(f"[RUN] Posts published total: {state['posts_published']}")
-    print(f"{'='*50}")
-
-    return True
+    print("=" * 50)
 
 
 if __name__ == "__main__":
-    success = run()
-    sys.exit(0 if success else 1)
+    main()
