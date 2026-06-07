@@ -8,6 +8,7 @@ import json
 import os
 import base64
 import time
+import re
 from dotenv import load_dotenv
 
 load_dotenv("/home/hermes/.env")
@@ -35,9 +36,10 @@ CATEGORY_IDS = {
     "Ambition & Peace": 19,
 }
 
+FOOTER = "*Inspired by a real story shared anonymously online.*"
+
 
 def upload_image(image_path, filename):
-    """Upload image to WordPress media library."""
     try:
         with open(image_path, "rb") as f:
             image_data = f.read()
@@ -70,7 +72,6 @@ def upload_image(image_path, filename):
 
 
 def get_or_create_tags(tag_names):
-    """Get or create tags, return list of tag IDs."""
     tag_ids = []
     for tag_name in tag_names:
         try:
@@ -101,7 +102,10 @@ def get_or_create_tags(tag_names):
 
 
 def format_content(article_text):
-    """Convert plain text article to WordPress block HTML."""
+    # Remove footer from article body — added cleanly at the end
+    article_text = article_text.replace(FOOTER, "").strip()
+    article_text = article_text.replace("Inspired by a real story shared anonymously online.", "").strip()
+
     paragraphs = article_text.strip().split("\n\n")
     html_parts = []
 
@@ -115,17 +119,20 @@ def format_content(article_text):
             lines = para.split("\n")
             for line in lines:
                 line = line.strip()
-                if line:
-                    html_parts.append(f"<!-- wp:paragraph --><p>{line}</p><!-- /wp:paragraph -->")
+                if not line:
+                    continue
+                line = re.sub(r'\*(.*?)\*', r'<em>\1</em>', line)
+                line = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', line)
+                html_parts.append(f"<!-- wp:paragraph --><p>{line}</p><!-- /wp:paragraph -->")
+
+    # Add footer once at the end
+    html_parts.append("<!-- wp:separator --><hr class=\"wp-block-separator\"/><!-- /wp:separator -->")
+    html_parts.append("<!-- wp:paragraph --><p><em>Inspired by a real story shared anonymously online.</em></p><!-- /wp:paragraph -->")
 
     return "\n".join(html_parts)
 
 
 def publish_post(article_data, pillar_name, image_path, today):
-    """
-    Publish article to WordPress.
-    Returns post URL or None if failed.
-    """
     print(f"\n[WP] Publishing post: {article_data['seo_title']}")
 
     category_id = CATEGORY_IDS.get(pillar_name)
@@ -138,7 +145,6 @@ def publish_post(article_data, pillar_name, image_path, today):
         image_id = upload_image(image_path, filename)
 
     tag_ids = get_or_create_tags(article_data.get("tags", []))
-
     content_html = format_content(article_data["article"])
 
     post_data = {
@@ -190,11 +196,11 @@ if __name__ == "__main__":
         "seo_title": "She Quit After 12 Years and Felt Nothing",
         "meta_description": "She expected relief when she finally left. Instead she sat in her car for forty-five minutes, not knowing what she felt. Twelve years, and her manager just said okay.",
         "focus_keyword": "quitting job feeling empty",
-        "slug": "quit-after-twelve-years-felt-nothing-2",
+        "slug": "quit-after-twelve-years-felt-nothing-3",
         "tags": ["burnout", "leaving job", "career burnout"],
     }
 
-    today = "2026-06-07-test2"
+    today = "2026-06-07-test3"
     result = publish_post(test_article, "Burnout & Exhaustion", None, today)
     if result:
         print(f"\n[WP] Success: {result}")
