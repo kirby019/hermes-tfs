@@ -12,7 +12,7 @@ load_dotenv("/home/hermes/.env")
 
 CLIENT = anthropic.Anthropic(api_key=os.getenv("CLAUDE_API_KEY"))
 
-SYSTEM_PROMPT = """You are Hermes — the daily automation agent for The Flawed Seeker (theflawedseeker.com). 
+SYSTEM_PROMPT = """You are Hermes — the daily automation agent for The Flawed Seeker (theflawedseeker.com).
 
 Every day you find one real human story online, write a reflection in The Flawed Seeker voice, and generate SEO metadata.
 
@@ -79,7 +79,7 @@ QUALITY GATE — before returning, verify:
 
 SEO METADATA — after the article, return a JSON block:
 {
-  "seo_title": "max 60 chars, plain statement or implied question",
+  "seo_title": "max 60 chars, plain statement or implied question — use the same pronoun as the article (he/she/they), never I",
   "meta_description": "140-155 chars, first sentence that pulls reader in, ends before resolution",
   "focus_keyword": "2-4 words, long-tail emotional phrase",
   "slug": "max 60 chars kebab-case keyword-rich",
@@ -88,10 +88,6 @@ SEO METADATA — after the article, return a JSON block:
 
 
 def generate_article(story, pillar_name):
-    """
-    Send story to Claude and get back full article + SEO metadata.
-    Returns dict with article and metadata, or None if failed.
-    """
     prompt = f"""Today's pillar: {pillar_name}
 
 Here is the story to write about:
@@ -121,7 +117,6 @@ Write the full article in The Flawed Seeker voice. Strip all identifiers — onl
 
             response_text = message.content[0].text
 
-            # Split article and metadata
             if "```json" in response_text:
                 parts = response_text.split("```json")
                 article_text = parts[0].strip()
@@ -131,7 +126,6 @@ Write the full article in The Flawed Seeker voice. Strip all identifiers — onl
                 print(f"  [WRITER] No JSON metadata found — attempt {attempt + 1}")
                 continue
 
-            # Basic quality checks
             if "---" not in article_text:
                 print(f"  [WRITER] Missing companion section separator — attempt {attempt + 1}")
                 continue
@@ -160,7 +154,6 @@ Write the full article in The Flawed Seeker voice. Strip all identifiers — onl
 
 
 if __name__ == "__main__":
-    # Test with a dummy story
     test_story = {
         "title": "I quit my job after 12 years and I don't know what I feel",
         "body": "I handed in my resignation yesterday after 12 years at the same company. I thought I would feel relieved. I thought I would feel free. Instead I sat in my car in the parking lot for 45 minutes and just stared at the steering wheel. I don't know what I'm feeling. My hands were shaking when I submitted the email. My manager said 'okay' and that was it. Twelve years and that was it.",
