@@ -100,6 +100,14 @@ def get_or_create_tags(tag_names):
 def format_content(article_text):
     # Remove any variation of the footer — theme adds it automatically
     article_text = re.sub(r'\*?Inspired by a real story shared anonymously online\.\*?', '', article_text).strip()
+    # Strip markdown headings (# ## ###)
+    article_text = re.sub(r'^#{1,6}\s+.*$', '', article_text, flags=re.MULTILINE).strip()
+    # Strip any repeated title line at the top (first line matching SEO title pattern)
+    lines = article_text.split('\n')
+    # Remove leading empty lines
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    article_text = '\n'.join(lines).strip()
 
     paragraphs = article_text.strip().split("\n\n")
     html_parts = []
@@ -187,11 +195,11 @@ if __name__ == "__main__":
         "seo_title": "She Quit After 12 Years and Felt Nothing",
         "meta_description": "She expected relief when she finally left. Instead she sat in her car for forty-five minutes, not knowing what she felt. Twelve years, and her manager just said okay.",
         "focus_keyword": "quitting job feeling empty",
-        "slug": "quit-after-twelve-years-felt-nothing-5",
+        "slug": "quit-after-twelve-years-felt-nothing-6",
         "tags": ["burnout", "leaving job", "career burnout"],
     }
 
-    today = "2026-06-07-test5"
+    today = "2026-06-07-test6"
     result = publish_post(test_article, "Burnout & Exhaustion", None, today)
     if result:
         print(f"\n[WP] Success: {result}")
