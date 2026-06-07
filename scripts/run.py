@@ -14,7 +14,7 @@ from scraper import scrape
 from writer import generate_article
 from image_gen import generate_image
 from pin_gen import generate_pin
-from wp_publish import publish_post
+from wp_publish import publish_post, fetch_all_titles
 from pinterest import post_to_pinterest
 
 STATE_FILE = "/home/hermes/state.json"
@@ -88,9 +88,14 @@ def main():
     log["steps"]["scrape"] = story["url"]
     print(f"[RUN] Story found: {story['title'][:60]}")
 
-    # Step 2: Generate article
-    print(f"\n[RUN] Step 2: Generating article...")
-    article_data = generate_article(story, pillar_name)
+    # Step 2: Fetch all existing post titles from WordPress for memory
+    print(f"\n[RUN] Step 2a: Loading post memory from WordPress...")
+    all_existing_posts = fetch_all_titles()
+    log["steps"]["memory"] = f"{len(all_existing_posts)} posts loaded"
+
+    # Step 2b: Generate article with full memory
+    print(f"\n[RUN] Step 2b: Generating article...")
+    article_data = generate_article(story, pillar_name, recent_posts=all_existing_posts)
     if not article_data:
         print("[RUN] Article generation failed — aborting")
         log["steps"]["write"] = "failed"
@@ -99,7 +104,7 @@ def main():
     log["steps"]["write"] = article_data["seo_title"]
     print(f"[RUN] Article ready: {article_data['seo_title']}")
 
-    # Step 3: Generate image (use article-specific prompt from Claude)
+    # Step 3: Generate image
     print(f"\n[RUN] Step 3: Generating image...")
     custom_prompt = article_data.get("image_prompt", "")
     image_path = generate_image(pillar_number, today, custom_prompt=custom_prompt if custom_prompt else None)
@@ -109,7 +114,6 @@ def main():
     print(f"\n[RUN] Step 4: Generating Pinterest pin...")
     pin_path = None
     if image_path:
-        from pin_gen import generate_pin
         pin_path = generate_pin(article_data["seo_title"], image_path, today)
         log["steps"]["pin"] = pin_path or "failed"
 
