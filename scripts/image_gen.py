@@ -25,10 +25,10 @@ PILLAR_OBJECTS = {
     9: "a winding path leading up a gentle hill that disappears into soft mist, minimal botanical border",
 }
 
-BASE_PROMPT = "Flat vector illustration, warm cream background, navy and muted gold accents, {object}, botanical minimalist style, no people, no faces, no text, soft edges, literary journal aesthetic, generous white space"
+STYLE_WRAPPER = "Flat vector illustration, warm cream background, navy and muted gold accents, {object}, botanical minimalist style, no people, no faces, no text, soft edges, literary journal aesthetic, generous white space"
 
 
-def generate_image(pillar_number, today=None):
+def generate_image(pillar_number, today=None, custom_prompt=None):
     if today is None:
         today = date.today().isoformat()
 
@@ -38,11 +38,17 @@ def generate_image(pillar_number, today=None):
         print(f"[IMAGE] Image already exists for today: {output_path}")
         return output_path
 
-    pillar_object = PILLAR_OBJECTS.get(pillar_number, PILLAR_OBJECTS[1])
-    prompt = BASE_PROMPT.format(object=pillar_object)
+    if custom_prompt:
+        # Use article-specific prompt from Claude
+        prompt = custom_prompt
+        print(f"\n[IMAGE] Generating image from article prompt")
+    else:
+        # Fall back to pillar default
+        pillar_object = PILLAR_OBJECTS.get(pillar_number, PILLAR_OBJECTS[1])
+        prompt = STYLE_WRAPPER.format(object=pillar_object)
+        print(f"\n[IMAGE] Generating image for pillar {pillar_number} (default)")
 
-    print(f"\n[IMAGE] Generating image for pillar {pillar_number}")
-    print(f"[IMAGE] Prompt: {prompt[:80]}...")
+    print(f"[IMAGE] Prompt: {prompt[:100]}...")
 
     try:
         response = CLIENT.images.generate(
@@ -72,7 +78,7 @@ def get_fallback_image(pillar_number):
 
 
 if __name__ == "__main__":
-    result = generate_image(1)
+    result = generate_image(1, custom_prompt="a child's small backpack resting by a front door, untouched, soft evening light, botanical frame, flat vector illustration, warm cream background, navy and muted gold accents, no people, no faces, no text")
     if result:
         print(f"\n[IMAGE] Success: {result}")
     else:
