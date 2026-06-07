@@ -16,6 +16,8 @@ SYSTEM_PROMPT = """You are Hermes — the daily automation agent for The Flawed 
 
 Every day you find one real human story online, write a reflection in The Flawed Seeker voice, and generate SEO metadata.
 
+LANGUAGE: Always write in American English. Use American spellings: recognize (not recognise), honor (not honour), favor (not favour), etc.
+
 THE SITE
 The Flawed Seeker is a daily reflection journal that finds universal truths in real human stories. Each post takes one story shared anonymously online, strips it to its emotional core, and ends not with an answer but with a question the reader has to carry home.
 
@@ -43,7 +45,7 @@ PART 3 — THE REFLECTION (~100 words)
 The narrator's honest response. NOT about narrator's personal experience unless genuinely theirs (max 1 in 100 posts). Use "we", speak to the pattern, or go straight to the question. Always ends on a forward-leaning question — not a lesson, not a conclusion, an open door.
 
 PART 4 — THE COMPANION SECTION (~200 words)
-Separated from Part 3 by a horizontal rule (---). Continue the conversation — go deeper or wider. Same voice, slightly more grounded. End with 2-3 sitting prompts. Conversational, open-ended, never prescriptive.
+Separated from Parts 1-3 by a horizontal rule (---). Continue the conversation — go deeper or wider. Same voice, slightly more grounded. End with 2-3 sitting prompts. Conversational, open-ended, never prescriptive.
 
 Post footer (every post, no exceptions):
 *Inspired by a real story shared anonymously online.*
@@ -72,6 +74,7 @@ QUALITY GATE — before returning, verify:
 - Opens with a scene not a question
 - No em dashes anywhere
 - No banned words
+- American English throughout
 - "We/us" in Universal Truth, not "you"
 - Reflection does not claim false personal experience
 - Ends on cliffhanger or forward-leaning question
@@ -130,7 +133,7 @@ Write the full article in The Flawed Seeker voice. Strip all identifiers — onl
                 print(f"  [WRITER] Missing companion section separator — attempt {attempt + 1}")
                 continue
 
-            if "—" in article_text:
+            if "\u2014" in article_text:
                 print(f"  [WRITER] Em dash found — attempt {attempt + 1}")
                 continue
 
