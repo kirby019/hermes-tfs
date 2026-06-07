@@ -15,7 +15,7 @@ from writer import generate_article
 from image_gen import generate_image
 from pin_gen import generate_pin
 from wp_publish import publish_post, fetch_all_titles
-from pinterest import post_to_pinterest
+from pinterest import post_pin
 
 STATE_FILE = "/home/hermes/state.json"
 LOG_DIR = "/home/hermes/logs"
@@ -88,7 +88,7 @@ def main():
     log["steps"]["scrape"] = story["url"]
     print(f"[RUN] Story found: {story['title'][:60]}")
 
-    # Step 2: Fetch all existing post titles from WordPress for memory
+    # Step 2a: Fetch all existing post titles from WordPress for memory
     print(f"\n[RUN] Step 2a: Loading post memory from WordPress...")
     all_existing_posts = fetch_all_titles()
     log["steps"]["memory"] = f"{len(all_existing_posts)} posts loaded"
@@ -130,8 +130,9 @@ def main():
 
     # Step 6: Post to Pinterest
     print(f"\n[RUN] Step 6: Posting to Pinterest...")
-    pinterest_result = post_to_pinterest(
-        title=article_data["seo_title"],
+    pinterest_result = post_pin(
+        article_title=article_data["seo_title"],
+        meta_description=article_data["meta_description"],
         post_url=post_url,
         pin_image_path=pin_path,
         pillar_name=pillar_name,
