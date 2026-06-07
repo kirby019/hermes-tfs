@@ -98,7 +98,7 @@ def get_or_create_tags(tag_names):
 
 
 def format_content(article_text):
-    # Remove any variation of the footer — added once cleanly at the end
+    # Remove any variation of the footer — theme adds it automatically
     article_text = re.sub(r'\*?Inspired by a real story shared anonymously online\.\*?', '', article_text).strip()
 
     paragraphs = article_text.strip().split("\n\n")
@@ -119,10 +119,6 @@ def format_content(article_text):
                 line = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', line)
                 line = re.sub(r'\*(.*?)\*', r'<em>\1</em>', line)
                 html_parts.append(f"<!-- wp:paragraph --><p>{line}</p><!-- /wp:paragraph -->")
-
-    # Add footer once at the end
-    html_parts.append("<!-- wp:separator --><hr class=\"wp-block-separator\"/><!-- /wp:separator -->")
-    html_parts.append("<!-- wp:paragraph --><p><em>Inspired by a real story shared anonymously online.</em></p><!-- /wp:paragraph -->")
 
     return "\n".join(html_parts)
 
@@ -191,11 +187,11 @@ if __name__ == "__main__":
         "seo_title": "She Quit After 12 Years and Felt Nothing",
         "meta_description": "She expected relief when she finally left. Instead she sat in her car for forty-five minutes, not knowing what she felt. Twelve years, and her manager just said okay.",
         "focus_keyword": "quitting job feeling empty",
-        "slug": "quit-after-twelve-years-felt-nothing-4",
+        "slug": "quit-after-twelve-years-felt-nothing-5",
         "tags": ["burnout", "leaving job", "career burnout"],
     }
 
-    today = "2026-06-07-test4"
+    today = "2026-06-07-test5"
     result = publish_post(test_article, "Burnout & Exhaustion", None, today)
     if result:
         print(f"\n[WP] Success: {result}")
