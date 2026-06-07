@@ -35,6 +35,74 @@ CATEGORY_IDS = {
     "Ambition & Peace": 19,
 }
 
+CATEGORY_NAMES = {v: k for k, v in CATEGORY_IDS.items()}
+
+
+def fetch_all_titles():
+    """
+    Fetch all published post titles from WordPress.
+    Returns list of {title, pillar, url} dicts.
+    """
+    all_posts = []
+    page = 1
+
+    print(f"[WP] Fetching all published post titles for memory...")
+
+    while True:
+        try:
+            response = requests.get(
+                f"{WP_URL}/wp-json/wp/v2/posts",
+                headers=HEADERS,
+                params={
+                    "status": "publish",
+                    "per_page": 100,
+                    "page": page,
+                    "_fields": "title,link,categories",
+                },
+                timeout=15
+            )
+
+            if response.status_code == 400:
+                break  # No more pages
+            if response.status_code != 200:
+                print(f"[WP] Failed to fetch titles: HTTP {response.status_code}")
+                break
+
+            posts = response.json()
+            if not posts:
+                break
+
+            for post in posts:
+                title = post.get("title", {}).get("rendered", "")
+                link = post.get("link", "")
+                cats = post.get("categories", [])
+
+                # Map category ID back to pillar name
+                pillar = None
+                for cat_id in cats:
+                    if cat_id in CATEGORY_NAMES:
+                        pillar = CATEGORY_NAMES[cat_id]
+                        break
+
+                all_posts.append({
+                    "title": title,
+                    "pillar": pillar,
+                    "url": link,
+                })
+
+            # Check if there are more pages
+            total_pages = int(response.headers.get("X-WP-TotalPages", 1))
+            if page >= total_pages:
+                break
+            page += 1
+
+        except Exception as e:
+            print(f"[WP] Error fetching titles page {page}: {e}")
+            break
+
+    print(f"[WP] Loaded {len(all_posts)} existing posts into memory")
+    return all_posts
+
 
 def upload_image(image_path, filename):
     try:
@@ -98,13 +166,12 @@ def get_or_create_tags(tag_names):
 
 
 def format_content(article_text):
-    # Remove any variation of the footer — theme adds it automatically
+    # Remove footer — theme adds it automatically
     article_text = re.sub(r'\*?Inspired by a real story shared anonymously online\.\*?', '', article_text).strip()
-    # Strip markdown headings (# ## ###)
+    # Strip markdown headings
     article_text = re.sub(r'^#{1,6}\s+.*$', '', article_text, flags=re.MULTILINE).strip()
-    # Strip any repeated title line at the top (first line matching SEO title pattern)
-    lines = article_text.split('\n')
     # Remove leading empty lines
+    lines = article_text.split('\n')
     while lines and not lines[0].strip():
         lines.pop(0)
     article_text = '\n'.join(lines).strip()
@@ -187,21 +254,3 @@ def publish_post(article_data, pillar_name, image_path, today):
             print(f"[WP] Publish error (attempt {attempt + 1}): {e}")
 
     return None
-
-
-if __name__ == "__main__":
-    test_article = {
-        "article": "She spent twelve years in the same building. Same desk, same login, same coffee machine that broke every third Tuesday. Then yesterday she submitted the email. Her hands shook. She expected relief. She expected freedom. Instead she sat in her car for forty-five minutes and stared at the steering wheel.\n\nHer manager said okay.\n\nThat was it.\n\n---\n\nWe think leaving will feel like opening a door. We rehearse the moment. We imagine the weight lifting. But sometimes freedom arrives and we don't recognize it. Sometimes we sit in parking lots because our bodies haven't caught up to the decision our minds already made. Sometimes twelve years fits into one word: okay.\n\nThe shaking hands knew something the resignation letter didn't.\n\n---\n\nShe thought she would know what she felt. Not that she left, but that she expected clarity on the other side. Like crossing a finish line would change the fact that she doesn't know how to stand still without something to push against.\n\nWhat do you do when you get what you wanted and it doesn't feel like winning?\n\n*Inspired by a real story shared anonymously online.*",
-        "seo_title": "She Quit After 12 Years and Felt Nothing",
-        "meta_description": "She expected relief when she finally left. Instead she sat in her car for forty-five minutes, not knowing what she felt. Twelve years, and her manager just said okay.",
-        "focus_keyword": "quitting job feeling empty",
-        "slug": "quit-after-twelve-years-felt-nothing-6",
-        "tags": ["burnout", "leaving job", "career burnout"],
-    }
-
-    today = "2026-06-07-test6"
-    result = publish_post(test_article, "Burnout & Exhaustion", None, today)
-    if result:
-        print(f"\n[WP] Success: {result}")
-    else:
-        print(f"\n[WP] Failed")
