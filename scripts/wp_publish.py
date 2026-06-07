@@ -4,7 +4,6 @@ Uploads image and creates post with all metadata.
 """
 
 import requests
-import json
 import os
 import base64
 import time
@@ -36,8 +35,6 @@ CATEGORY_IDS = {
     "Ambition & Peace": 19,
 }
 
-FOOTER = "*Inspired by a real story shared anonymously online.*"
-
 
 def upload_image(image_path, filename):
     try:
@@ -63,7 +60,6 @@ def upload_image(image_path, filename):
             return media["id"]
         else:
             print(f"[WP] Image upload failed: HTTP {response.status_code}")
-            print(response.text[:200])
             return None
 
     except Exception as e:
@@ -102,9 +98,8 @@ def get_or_create_tags(tag_names):
 
 
 def format_content(article_text):
-    # Remove footer from article body — added cleanly at the end
-    article_text = article_text.replace(FOOTER, "").strip()
-    article_text = article_text.replace("Inspired by a real story shared anonymously online.", "").strip()
+    # Remove any variation of the footer — added once cleanly at the end
+    article_text = re.sub(r'\*?Inspired by a real story shared anonymously online\.\*?', '', article_text).strip()
 
     paragraphs = article_text.strip().split("\n\n")
     html_parts = []
@@ -121,8 +116,8 @@ def format_content(article_text):
                 line = line.strip()
                 if not line:
                     continue
-                line = re.sub(r'\*(.*?)\*', r'<em>\1</em>', line)
                 line = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', line)
+                line = re.sub(r'\*(.*?)\*', r'<em>\1</em>', line)
                 html_parts.append(f"<!-- wp:paragraph --><p>{line}</p><!-- /wp:paragraph -->")
 
     # Add footer once at the end
@@ -192,15 +187,15 @@ def publish_post(article_data, pillar_name, image_path, today):
 
 if __name__ == "__main__":
     test_article = {
-        "article": "She spent twelve years in the same building. Same desk, same login, same coffee machine that broke every third Tuesday. Then yesterday she submitted the email. Her hands shook. She expected relief. She expected freedom. Instead she sat in her car for forty-five minutes and stared at the steering wheel.\n\nHer manager said okay.\n\nThat was it.\n\n---\n\nWe think leaving will feel like opening a door. We rehearse the moment. We imagine the weight lifting. But sometimes freedom arrives and we don't recognise it. Sometimes we sit in parking lots because our bodies haven't caught up to the decision our minds already made. Sometimes twelve years fits into one word: okay.\n\nThe shaking hands knew something the resignation letter didn't.\n\n---\n\nShe thought she would know what she felt. Not that she left, but that she expected clarity on the other side. Like crossing a finish line would change the fact that she doesn't know how to stand still without something to push against.\n\nWhat do you do when you get what you wanted and it doesn't feel like winning?\n\n*Inspired by a real story shared anonymously online.*",
+        "article": "She spent twelve years in the same building. Same desk, same login, same coffee machine that broke every third Tuesday. Then yesterday she submitted the email. Her hands shook. She expected relief. She expected freedom. Instead she sat in her car for forty-five minutes and stared at the steering wheel.\n\nHer manager said okay.\n\nThat was it.\n\n---\n\nWe think leaving will feel like opening a door. We rehearse the moment. We imagine the weight lifting. But sometimes freedom arrives and we don't recognize it. Sometimes we sit in parking lots because our bodies haven't caught up to the decision our minds already made. Sometimes twelve years fits into one word: okay.\n\nThe shaking hands knew something the resignation letter didn't.\n\n---\n\nShe thought she would know what she felt. Not that she left, but that she expected clarity on the other side. Like crossing a finish line would change the fact that she doesn't know how to stand still without something to push against.\n\nWhat do you do when you get what you wanted and it doesn't feel like winning?\n\n*Inspired by a real story shared anonymously online.*",
         "seo_title": "She Quit After 12 Years and Felt Nothing",
         "meta_description": "She expected relief when she finally left. Instead she sat in her car for forty-five minutes, not knowing what she felt. Twelve years, and her manager just said okay.",
         "focus_keyword": "quitting job feeling empty",
-        "slug": "quit-after-twelve-years-felt-nothing-3",
+        "slug": "quit-after-twelve-years-felt-nothing-4",
         "tags": ["burnout", "leaving job", "career burnout"],
     }
 
-    today = "2026-06-07-test3"
+    today = "2026-06-07-test4"
     result = publish_post(test_article, "Burnout & Exhaustion", None, today)
     if result:
         print(f"\n[WP] Success: {result}")
