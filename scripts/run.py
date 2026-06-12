@@ -19,6 +19,7 @@ from pinterest import post_pin
 
 STATE_FILE = "/home/hermes/state.json"
 LOG_DIR = "/home/hermes/logs"
+MAX_STORY_ATTEMPTS = 3
 
 PILLAR_NAMES = {
     1: "Burnout & Exhaustion",
@@ -75,34 +76,54 @@ def main():
         "pillar": pillar_name,
         "pillar_number": pillar_number,
         "steps": {},
+        "story_attempts": 0,
     }
-
-    # Step 1: Scrape
-    print(f"\n[RUN] Step 1: Scraping story...")
-    story = scrape(pillar_number)
-    if not story:
-        print("[RUN] No story found — aborting")
-        log["steps"]["scrape"] = "failed"
-        save_log(today, log)
-        return
-    log["steps"]["scrape"] = story["url"]
-    print(f"[RUN] Story found: {story['title'][:60]}")
 
     # Step 2a: Fetch all existing post titles from WordPress for memory
     print(f"\n[RUN] Step 2a: Loading post memory from WordPress...")
     all_existing_posts = fetch_all_titles()
     log["steps"]["memory"] = f"{len(all_existing_posts)} posts loaded"
 
-    # Step 2b: Generate article with full memory
-    print(f"\n[RUN] Step 2b: Generating article...")
-    article_data = generate_article(story, pillar_name, recent_posts=all_existing_posts)
+    # Steps 1 + 2b: Scrape and write — retry with fresh story if writer fails
+    article_data = None
+    tried_urls = []
+
+    for attempt in range(1, MAX_STORY_ATTEMPTS + 1):
+        print(f"\n[RUN] Step 1: Scraping story (attempt {attempt}/{MAX_STORY_ATTEMPTS})...")
+        story = scrape(pillar_number)
+
+        if not story:
+            print("[RUN] No story found — aborting")
+            log["steps"]["scrape"] = "failed"
+            save_log(today, log)
+            return
+
+        # Skip stories we already tried
+        if story["url"] in tried_urls:
+            print(f"[RUN] Same story returned — skipping")
+            continue
+
+        tried_urls.append(story["url"])
+        log["steps"][f"scrape_attempt_{attempt}"] = story["url"]
+        log["story_attempts"] = attempt
+        print(f"[RUN] Story found: {story['title'][:60]}")
+
+        print(f"\n[RUN] Step 2b: Generating article (attempt {attempt}/{MAX_STORY_ATTEMPTS})...")
+        article_data = generate_article(story, pillar_name, recent_posts=all_existing_posts)
+
+        if article_data:
+            print(f"[RUN] Article ready: {article_data['seo_title']}")
+            log["steps"]["write"] = article_data["seo_title"]
+            break
+        else:
+            print(f"[RUN] Article generation failed — trying a different story...")
+            log["steps"][f"write_attempt_{attempt}"] = "failed"
+
     if not article_data:
-        print("[RUN] Article generation failed — aborting")
-        log["steps"]["write"] = "failed"
+        print("[RUN] All story attempts failed — aborting")
+        log["steps"]["write"] = "failed after 3 attempts"
         save_log(today, log)
         return
-    log["steps"]["write"] = article_data["seo_title"]
-    print(f"[RUN] Article ready: {article_data['seo_title']}")
 
     # Step 3: Generate image
     print(f"\n[RUN] Step 3: Generating image...")
@@ -156,6 +177,7 @@ def main():
     print(f"[RUN] Hermes complete!")
     print(f"[RUN] Article: {article_data['seo_title']}")
     print(f"[RUN] Post: {post_url}")
+    print(f"[RUN] Story attempts: {log['story_attempts']}")
     print(f"[RUN] Posts published total: {state['posts_published']}")
     print("=" * 50)
 
