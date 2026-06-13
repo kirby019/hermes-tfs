@@ -1,23 +1,22 @@
 import os
-import math
+import re
 import json
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
+from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 from moviepy import VideoClip, AudioFileClip, CompositeAudioClip
-from pydub import AudioSegment
 from dotenv import load_dotenv
 
 load_dotenv()
 
-W, H   = 1920, 1080
-FPS    = 24
-FONTS  = [
-    # Linux (VPS)
+W, H              = 1920, 1080
+FPS               = 24
+END_CARD_DURATION = 5.0
+
+FONTS = [
     "/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-    # macOS (local dev)
     "/System/Library/Fonts/Supplemental/Georgia.ttf",
     "/System/Library/Fonts/Georgia.ttf",
     "/Library/Fonts/Georgia.ttf",
@@ -27,8 +26,6 @@ FONTS  = [
 BG    = (10, 8, 6)
 CREAM = (240, 228, 210)
 GOLD  = (184, 151, 90)
-DIM   = (160, 148, 132)
-WHITE = (255, 255, 255)
 
 
 def get_font(size):
@@ -71,15 +68,15 @@ def load_article_image(image_path):
 
 
 def ken_burns(base_img, t, duration, zoom_start=1.0, zoom_end=1.06, pan_x=0.0):
-    p      = ease_in_out(t / duration)
-    zoom   = zoom_start + (zoom_end - zoom_start) * p
-    nw     = int(W * zoom)
-    nh     = int(H * zoom)
+    p = ease_in_out(t / max(duration, 0.001))
+    zoom = zoom_start + (zoom_end - zoom_start) * p
+    nw = int(W * zoom)
+    nh = int(H * zoom)
     resized = base_img.resize((nw, nh), Image.LANCZOS)
-    ox     = int((nw - W) * (0.5 + pan_x * 0.5))
-    oy     = (nh - H) // 2
-    ox     = max(0, min(ox, nw - W))
-    oy     = max(0, min(oy, nh - H))
+    ox = int((nw - W) * (0.5 + pan_x * 0.5))
+    oy = (nh - H) // 2
+    ox = max(0, min(ox, nw - W))
+    oy = max(0, min(oy, nh - H))
     return resized.crop((ox, oy, ox + W, oy + H))
 
 
@@ -95,7 +92,16 @@ def vignette_overlay():
     return Image.fromarray(arr, "RGBA")
 
 
-VIGNETTE = None
+def bottom_gradient_overlay(height=220):
+    arr = np.zeros((H, W, 4), dtype=np.uint8)
+    for i in range(height):
+        alpha = int(150 * (i / height) ** 1.5)
+        arr[H - height + i, :, 3] = alpha
+    return Image.fromarray(arr, "RGBA")
+
+
+VIGNETTE    = None
+BOTTOM_GRAD = None
 
 
 def get_vignette():
@@ -105,20 +111,26 @@ def get_vignette():
     return VIGNETTE
 
 
-def dark_overlay(img, alpha=120):
+def get_bottom_gradient():
+    global BOTTOM_GRAD
+    if BOTTOM_GRAD is None:
+        BOTTOM_GRAD = bottom_gradient_overlay()
+    return BOTTOM_GRAD
+
+
+def dark_overlay(img, alpha=110):
     overlay = Image.new("RGBA", (W, H), (0, 0, 0, alpha))
     img.alpha_composite(overlay)
 
 
 def wrap_text(text, font, max_width):
-    words   = text.split()
-    lines   = []
+    words = text.split()
+    lines = []
     current = []
-    draw    = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
-
+    draw = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
     for word in words:
         test = " ".join(current + [word])
-        bb   = draw.textbbox((0, 0), test, font=font)
+        bb = draw.textbbox((0, 0), test, font=font)
         if bb[2] - bb[0] > max_width and current:
             lines.append(" ".join(current))
             current = [word]
@@ -131,39 +143,48 @@ def wrap_text(text, font, max_width):
 
 def draw_text_block(draw, lines, y_center, font, color, alpha, line_height=None):
     if line_height is None:
-        bb          = draw.textbbox((0, 0), "A", font=font)
+        bb = draw.textbbox((0, 0), "A", font=font)
         line_height = (bb[3] - bb[1]) + 18
-
     total_h = len(lines) * line_height
-    y       = y_center - total_h // 2
-
+    y = y_center - total_h // 2
     for line in lines:
         bb = draw.textbbox((0, 0), line, font=font)
-        x  = (W - (bb[2] - bb[0])) // 2
+        x = (W - (bb[2] - bb[0])) // 2
         draw.text((x + 2, y + 2), line, font=font, fill=(0, 0, 0, int(alpha * 0.7)))
-        draw.text((x, y),         line, font=font, fill=(*color[:3], int(alpha)))
+        draw.text((x, y), line, font=font, fill=(*color[:3], int(alpha)))
         y += line_height
 
 
-def build_text_scenes(sections):
+def extract_captions(sections):
+    """Extract short punchy phrases for caption display."""
     SECTION_ORDER = ["HOOK", "STORY", "UNIVERSAL TRUTH", "REFLECTION",
-                     "COMPANION", "CLOSING QUESTION", "END CARD"]
+                     "COMPANION", "CLOSING QUESTION"]
 
-    scenes = []
+    captions = []
     for section in SECTION_ORDER:
         text = sections.get(section, "")
         if not text:
             continue
-        paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
-        for para in paragraphs:
-            word_count = len(para.split())
-            duration   = max(4.0, (word_count / 115) * 60 + 2.5)
-            scenes.append({
-                "text":     para,
-                "duration": duration,
-                "section":  section,
-            })
-    return scenes
+
+        sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if not sentence or len(sentence) < 4:
+                continue
+
+            words = sentence.split()
+            if len(words) <= 10:
+                captions.append(sentence)
+            else:
+                comma_idx = sentence.find(',')
+                if 0 < comma_idx < 55:
+                    first_clause = sentence[:comma_idx].strip()
+                    if len(first_clause.split()) <= 10:
+                        captions.append(first_clause)
+                        continue
+                captions.append(" ".join(words[:7]))
+
+    return captions if captions else ["The Flawed Seeker"]
 
 
 def make_video(script_path, voiceover_path, music_path, image_path, output_path):
@@ -171,112 +192,108 @@ def make_video(script_path, voiceover_path, music_path, image_path, output_path)
     with open(script_path) as f:
         script_data = json.load(f)
 
-    sections       = script_data.get("sections", {})
-    scenes         = build_text_scenes(sections)
-    total_duration = sum(s["duration"] for s in scenes)
+    sections = script_data.get("sections", {})
 
-    starts = []
-    t      = 0.0
-    for s in scenes:
-        starts.append(t)
-        t += s["duration"]
+    print("Loading audio...")
+    voice_audio    = AudioFileClip(voiceover_path)
+    voice_duration = voice_audio.duration
 
-    print(f"Script: {len(scenes)} scenes, {total_duration:.0f}s total")
+    captions  = extract_captions(sections)
+    per_cap   = max(3.0, min(voice_duration / len(captions), 12.0))
+    total_dur = voice_duration + END_CARD_DURATION
+
+    timed = []
+    t = 0.0
+    for cap in captions:
+        timed.append({"text": cap, "start": t, "duration": per_cap, "end_card": False})
+        t += per_cap
+    timed.append({
+        "text": "theflawedseeker.com",
+        "start": voice_duration,
+        "duration": END_CARD_DURATION,
+        "end_card": True,
+    })
+
+    print(f"Captions: {len(captions)}, {per_cap:.1f}s each, {total_dur:.0f}s total")
 
     print("Loading article image...")
     base_img = load_article_image(image_path)
 
-    print("Loading audio...")
-    voice_audio = AudioFileClip(voiceover_path)
     music_audio = AudioFileClip(music_path)
-
-    # Loop music to fill video
-    if music_audio.duration < total_duration:
-        loops = int(total_duration / music_audio.duration) + 2
+    if music_audio.duration < total_dur:
+        loops = int(total_dur / music_audio.duration) + 2
         from moviepy import concatenate_audioclips
         music_audio = concatenate_audioclips([music_audio] * loops)
-    music_audio = music_audio.subclipped(0, total_duration).with_volume_scaled(0.15)
+    music_audio = music_audio.subclipped(0, total_dur).with_volume_scaled(0.15)
 
-    font_large  = get_font(64)
-    font_medium = get_font(52)
-    font_small  = get_font(40)
-    font_site   = get_font(32)
+    font_caption = get_font(72)
+    font_site    = get_font(52)
+    font_tagline = get_font(34)
 
     def make_frame(t):
-        current_scene = 0
-        for i in range(len(scenes) - 1):
-            if t >= starts[i + 1]:
-                current_scene = i + 1
+        current = 0
+        for i in range(len(timed) - 1):
+            if t >= timed[i + 1]["start"]:
+                current = i + 1
             else:
                 break
 
-        scene     = scenes[current_scene]
-        scene_t   = t - starts[current_scene]
-        scene_dur = scene["duration"]
-        p         = scene_t / scene_dur
+        cap     = timed[current]
+        cap_t   = t - cap["start"]
+        cap_dur = cap["duration"]
+        p       = cap_t / max(cap_dur, 0.001)
 
-        zoom_s = 1.0  if current_scene % 2 == 0 else 1.06
-        zoom_e = 1.06 if current_scene % 2 == 0 else 1.0
-        pan_x  = -0.3 if current_scene % 3 == 0 else (0.3 if current_scene % 3 == 1 else 0.0)
+        zoom_s = 1.0 if current % 2 == 0 else 1.06
+        zoom_e = 1.06 if current % 2 == 0 else 1.0
+        pan_x  = [-0.3, 0.3, 0.0][current % 3]
 
         img = Image.new("RGBA", (W, H))
-        bg  = ken_burns(base_img, scene_t, scene_dur, zoom_s, zoom_e, pan_x)
+        bg  = ken_burns(base_img, cap_t, cap_dur, zoom_s, zoom_e, pan_x)
         img.alpha_composite(bg)
 
-        dark_overlay(img, alpha=150)
+        dark_overlay(img, alpha=110)
         img.alpha_composite(get_vignette())
+        img.alpha_composite(get_bottom_gradient())
 
         draw = ImageDraw.Draw(img)
 
-        fade_in_end    = min(1.0 / scene_dur, 0.25)
-        fade_out_start = max(1.0 - 0.8 / scene_dur, 0.75)
-
-        if p < fade_in_end:
-            text_alpha = ease_out(p / fade_in_end) * 255
-        elif p > fade_out_start:
-            text_alpha = ease_out(1.0 - (p - fade_out_start) / (1.0 - fade_out_start)) * 255
+        fade = 0.4 / max(cap_dur, 0.001)
+        if p < fade:
+            text_alpha = int(ease_out(p / fade) * 255)
+        elif p > (1.0 - fade):
+            text_alpha = int(ease_out((1.0 - p) / fade) * 255)
         else:
             text_alpha = 255
-
         text_alpha = max(0, min(255, text_alpha))
 
-        text       = scene["text"]
-        word_count = len(text.split())
-        font       = font_large if word_count <= 12 else (font_medium if word_count <= 25 else font_small)
-        max_w      = int(W * 0.72)
-
-        lines = wrap_text(text, font, max_w)
-        draw_text_block(draw, lines, H // 2, font, CREAM, text_alpha)
-
-        if scene["section"] == "END CARD":
-            tag_alpha = text_alpha
-        else:
-            tag_alpha = int(text_alpha * 0.4)
-
-        if tag_alpha > 10:
-            site_text = "theflawedseeker.com"
-            bb = draw.textbbox((0, 0), site_text, font=font_site)
+        if cap["end_card"]:
+            bb = draw.textbbox((0, 0), "theflawedseeker.com", font=font_site)
             x  = (W - (bb[2] - bb[0])) // 2
-            draw.text((x, H - 70), site_text, font=font_site,
-                      fill=(*GOLD, int(tag_alpha)))
+            y  = H // 2 - (bb[3] - bb[1]) // 2
+            draw.text((x + 2, y + 2), "theflawedseeker.com", font=font_site, fill=(0, 0, 0, int(text_alpha * 0.7)))
+            draw.text((x, y), "theflawedseeker.com", font=font_site, fill=(*GOLD, text_alpha))
 
-        if p < fade_in_end:
-            slide = int(30 * (1 - ease_out(p / fade_in_end)))
+            tagline = "A new reflection every day."
+            bb2 = draw.textbbox((0, 0), tagline, font=font_tagline)
+            x2  = (W - (bb2[2] - bb2[0])) // 2
+            draw.text((x2, y + 74), tagline, font=font_tagline, fill=(*CREAM, int(text_alpha * 0.8)))
         else:
-            slide = 0
+            lines = wrap_text(cap["text"], font_caption, int(W * 0.78))
+            draw_text_block(draw, lines, int(H * 0.80), font_caption, CREAM, text_alpha)
 
-        if slide > 0:
-            arr = np.array(img)
-            arr = np.roll(arr, -slide, axis=0)
-            img = Image.fromarray(arr, "RGBA")
+            site_alpha = int(text_alpha * 0.35)
+            if site_alpha > 10:
+                bb = draw.textbbox((0, 0), "theflawedseeker.com", font=font_tagline)
+                x  = (W - (bb[2] - bb[0])) // 2
+                draw.text((x, H - 40), "theflawedseeker.com", font=font_tagline, fill=(*GOLD, site_alpha))
 
         return np.array(img.convert("RGB"))
 
     print("Rendering video...")
-    clip = VideoClip(make_frame, duration=total_duration)
+    clip = VideoClip(make_frame, duration=total_dur)
 
     final_audio = CompositeAudioClip([voice_audio, music_audio])
-    clip        = clip.with_audio(final_audio)
+    clip = clip.with_audio(final_audio)
 
     clip.write_videofile(
         output_path,
@@ -295,9 +312,9 @@ def make_video(script_path, voiceover_path, music_path, image_path, output_path)
 if __name__ == "__main__":
     import sys
     make_video(
-        script_path    = sys.argv[1] if len(sys.argv) > 1 else "/home/hermes/video_scripts/test.json",
-        voiceover_path = sys.argv[2] if len(sys.argv) > 2 else "/home/hermes/tts/test.mp3",
-        music_path     = sys.argv[3] if len(sys.argv) > 3 else "/home/hermes/music/Burnout.mp3",
-        image_path     = sys.argv[4] if len(sys.argv) > 4 else "/home/hermes/images/generated/test.png",
-        output_path    = sys.argv[5] if len(sys.argv) > 5 else "/home/hermes/videos/test.mp4",
+        script_path    = sys.argv[1] if len(sys.argv) > 1 else "/home/hermes/scripts/test_script.json",
+        voiceover_path = sys.argv[2] if len(sys.argv) > 2 else "/home/hermes/tts/test_voiceover.mp3",
+        music_path     = sys.argv[3] if len(sys.argv) > 3 else "/home/hermes/music/Money.mp3",
+        image_path     = sys.argv[4] if len(sys.argv) > 4 else "/home/hermes/images/test.png",
+        output_path    = sys.argv[5] if len(sys.argv) > 5 else "/home/hermes/videos/test_video.mp4",
     )
