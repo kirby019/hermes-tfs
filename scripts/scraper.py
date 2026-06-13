@@ -46,7 +46,6 @@ HEADERS = {
 
 
 def fetch_medium_rss(tag):
-    """Fetch posts from Medium RSS feed for a tag."""
     url = f"https://medium.com/feed/tag/{tag}"
     try:
         response = requests.get(url, headers=HEADERS, timeout=15)
@@ -60,16 +59,15 @@ def fetch_medium_rss(tag):
 
         for item in items:
             title_el = item.find("title")
-            desc_el = item.find("description")
-            link_el = item.find("link")
+            desc_el  = item.find("description")
+            link_el  = item.find("link")
 
             if title_el is None or desc_el is None or link_el is None:
                 continue
 
-            title = html.unescape(title_el.text or "")
+            title    = html.unescape(title_el.text or "")
             raw_desc = desc_el.text or ""
 
-            # Strip HTML tags from description
             body = re.sub(r"<[^>]+>", " ", raw_desc)
             body = html.unescape(body)
             body = re.sub(r"\s+", " ", body).strip()
@@ -79,12 +77,7 @@ def fetch_medium_rss(tag):
             if len(body) < 150:
                 continue
 
-            posts.append({
-                "title": title,
-                "body": body,
-                "url": link,
-                "tag": tag,
-            })
+            posts.append({"title": title, "body": body, "url": link, "tag": tag})
 
         return posts
 
@@ -97,7 +90,6 @@ def fetch_medium_rss(tag):
 
 
 def is_safe(post):
-    """Return False if post contains crisis/harmful content."""
     text = (post.get("title", "") + " " + post.get("body", "")).lower()
     for keyword in SKIP_KEYWORDS:
         if keyword in text:
@@ -106,25 +98,33 @@ def is_safe(post):
 
 
 def score_post(post):
-    """Score a post by narrative quality and length."""
     score = 0
-    body = post.get("body", "")
+    body  = post.get("body", "")
 
-    # Length score (max 30pts)
     score += min(len(body) / 100, 30)
 
-    # First-person narrative boost
     first_person = ["i ", "i've", "i was", "i am", "my ", "me ", "myself"]
     for fp in first_person:
         if fp in body.lower():
             score += 15
             break
 
-    # Personal story indicators
     story_words = ["years", "months", "decided", "felt", "realized", "thought", "knew"]
     for word in story_words:
         if word in body.lower():
             score += 2
+
+    intent_phrases = [
+        "stuck", "lost", "empty", "hollow", "enough", "what was it all for",
+        "years of my life", "don't recognize myself", "gave everything",
+        "thought i'd feel better", "hate my job", "can't stop thinking",
+        "everyone else seems fine", "tired", "burned out", "no one understands",
+        "should have", "too late", "wasted", "regret",
+    ]
+    for phrase in intent_phrases:
+        if phrase in body.lower():
+            score += 5
+            break
 
     return score
 
@@ -132,16 +132,16 @@ def score_post(post):
 def scrape(pillar_number):
     """
     Main scrape function.
-    Returns the best candidate story for the given pillar.
+    Returns top 3 candidate stories for the given pillar, sorted by score.
     """
     pillar_name = PILLAR_NAMES.get(pillar_number, "Unknown")
-    tags = PILLAR_TAGS.get(pillar_number, [])
+    tags        = PILLAR_TAGS.get(pillar_number, [])
 
     print(f"\n[SCRAPER] Pillar {pillar_number}: {pillar_name}")
     print(f"[SCRAPER] Searching Medium tags: {', '.join(tags)}")
 
     candidates = []
-    skipped = []
+    skipped    = []
 
     for tag in tags:
         print(f"  Fetching medium.com/tag/{tag}...")
@@ -153,7 +153,6 @@ def scrape(pillar_number):
                 skipped.append(post["url"])
                 print(f"  [SKIP] Safety filter: {post['title'][:60]}")
                 continue
-
             post["score"] = score_post(post)
             candidates.append(post)
 
@@ -162,22 +161,19 @@ def scrape(pillar_number):
         return None
 
     candidates.sort(key=lambda x: x["score"], reverse=True)
-    best = candidates[0]
+    top = candidates[:3]
 
-    print(f"\n[SCRAPER] Best story found:")
-    print(f"  Title: {best['title'][:80]}")
-    print(f"  Tag: {best['tag']}")
-    print(f"  URL: {best['url']}")
-    print(f"  Score: {best['score']:.1f}")
-    print(f"  Body length: {len(best['body'])} chars")
+    print(f"\n[SCRAPER] Top {len(top)} candidates found:")
+    for i, c in enumerate(top):
+        print(f"  #{i+1} ({c['score']:.1f}) {c['title'][:70]}")
     print(f"  Skipped {len(skipped)} unsafe stories")
 
-    return best
+    return top
 
 
 if __name__ == "__main__":
     result = scrape(1)
     if result:
         print("\n--- STORY PREVIEW ---")
-        print(f"Title: {result['title']}")
-        print(f"Body (first 400 chars): {result['body'][:400]}...")
+        print(f"Title: {result[0]['title']}")
+        print(f"Body (first 400 chars): {result[0]['body'][:400]}...")
