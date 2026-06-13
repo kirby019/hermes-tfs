@@ -123,7 +123,7 @@ def main():
     # 3 — Generate image
     print("\n[3/9] Generating image...")
     try:
-        image_path = generate_image(pillar_num, today)
+        image_path = generate_image(pillar_num, today, article_title=article_data["seo_title"])
         if not image_path:
             image_path = get_fallback_image(pillar_num)
             log["steps"]["image"] = "fallback"
