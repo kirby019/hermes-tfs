@@ -2,11 +2,12 @@ import os
 import re
 import json
 import numpy as np
+import openai
 from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 from moviepy import VideoClip, AudioFileClip, CompositeAudioClip
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv("/home/hermes/.env")
 
 W, H              = 1920, 1080
 FPS               = 24
@@ -155,8 +156,82 @@ def draw_text_block(draw, lines, y_center, font, color, alpha, line_height=None)
         y += line_height
 
 
-def extract_captions(sections):
-    """Extract short punchy phrases for caption display."""
+def get_whisper_captions(voiceover_path):
+    """Use Whisper to get word-level timestamps, grouped into short phrases."""
+    try:
+        client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+        with open(voiceover_path, "rb") as f:
+            result = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=f,
+                response_format="verbose_json",
+                timestamp_granularities=["word"]
+            )
+
+        if not result.words:
+            print("[WHISPER] No word timestamps returned")
+            return None
+
+        words = result.words
+        phrases = []
+        current_words = []
+        current_start = None
+
+        for w in words:
+            word_text = w.word.strip()
+            if not word_text:
+                continue
+
+            if current_start is None:
+                current_start = w.start
+
+            current_words.append(word_text)
+            is_sentence_end = word_text.rstrip('"\'').endswith(('.', '!', '?'))
+
+            if is_sentence_end or len(current_words) >= 7:
+                phrases.append({
+                    "text": " ".join(current_words),
+                    "start": current_start,
+                    "end": w.end,
+                })
+                current_words = []
+                current_start = None
+
+        if current_words and current_start is not None:
+            phrases.append({
+                "text": " ".join(current_words),
+                "start": current_start,
+                "end": words[-1].end,
+            })
+
+        # Extend each phrase to fill gap to next, minimum 1.5s
+        timed = []
+        for i, phrase in enumerate(phrases):
+            natural_dur = phrase["end"] - phrase["start"]
+            if i + 1 < len(phrases):
+                gap_dur = phrases[i + 1]["start"] - phrase["start"]
+                duration = min(max(natural_dur + 0.3, 1.5), max(natural_dur, gap_dur))
+            else:
+                duration = max(natural_dur + 0.3, 1.5)
+
+            timed.append({
+                "text": phrase["text"],
+                "start": phrase["start"],
+                "duration": duration,
+                "end_card": False,
+            })
+
+        print(f"[WHISPER] {len(timed)} captions synced to audio")
+        return timed
+
+    except Exception as e:
+        print(f"[WHISPER] Error: {e} — falling back to even distribution")
+        return None
+
+
+def extract_captions_fallback(sections):
+    """Fallback: extract short phrases from script sections, evenly distributed."""
     SECTION_ORDER = ["HOOK", "STORY", "UNIVERSAL TRUTH", "REFLECTION",
                      "COMPANION", "CLOSING QUESTION"]
 
@@ -198,15 +273,22 @@ def make_video(script_path, voiceover_path, music_path, image_path, output_path)
     voice_audio    = AudioFileClip(voiceover_path)
     voice_duration = voice_audio.duration
 
-    captions  = extract_captions(sections)
-    per_cap   = max(3.0, min(voice_duration / len(captions), 12.0))
+    # Try Whisper sync — fall back to even distribution if it fails
+    print("Getting caption timestamps...")
+    timed = get_whisper_captions(voiceover_path)
+
+    if timed is None:
+        captions = extract_captions_fallback(sections)
+        per_cap  = max(3.0, min(voice_duration / len(captions), 12.0))
+        timed    = []
+        t        = 0.0
+        for cap in captions:
+            timed.append({"text": cap, "start": t, "duration": per_cap, "end_card": False})
+            t += per_cap
+        print(f"[CAPTIONS] Fallback: {len(captions)} captions, {per_cap:.1f}s each")
+
     total_dur = voice_duration + END_CARD_DURATION
 
-    timed = []
-    t = 0.0
-    for cap in captions:
-        timed.append({"text": cap, "start": t, "duration": per_cap, "end_card": False})
-        t += per_cap
     timed.append({
         "text": "theflawedseeker.com",
         "start": voice_duration,
@@ -214,7 +296,7 @@ def make_video(script_path, voiceover_path, music_path, image_path, output_path)
         "end_card": True,
     })
 
-    print(f"Captions: {len(captions)}, {per_cap:.1f}s each, {total_dur:.0f}s total")
+    print(f"Captions: {len(timed) - 1}, total {total_dur:.0f}s")
 
     print("Loading article image...")
     base_img = load_article_image(image_path)
