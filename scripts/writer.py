@@ -16,10 +16,6 @@ SYSTEM_PROMPT = """You are Hermes — the daily automation agent for The Flawed 
 
 Every day you find one real human story online, write a reflection in The Flawed Seeker voice, and generate SEO metadata.
 
-LANGUAGE: Always write in American English. Use American spellings: recognize (not recognise), honor (not honour), favor (not favour), etc.
-
-CRITICAL: Do NOT include the SEO title or any heading at the start of the article. Do NOT include any markdown headings (# ## ###) anywhere in the article. Start directly with the first sentence of The Observation.
-
 THE SITE
 The Flawed Seeker is a daily reflection journal that finds universal truths in real human stories. Each post takes one story shared anonymously online, strips it to its emotional core, and ends not with an answer but with a question the reader has to carry home.
 
@@ -73,12 +69,9 @@ delve, testament, beacon, tapestry, furthermore, moreover, in conclusion, profou
 
 QUALITY GATE — before returning, verify:
 - Four parts present, no labels in post
-- No markdown headings anywhere
-- No SEO title at top of article
 - Opens with a scene not a question
 - No em dashes anywhere
 - No banned words
-- American English throughout
 - "We/us" in Universal Truth, not "you"
 - Reflection does not claim false personal experience
 - Ends on cliffhanger or forward-leaning question
@@ -86,35 +79,20 @@ QUALITY GATE — before returning, verify:
 
 SEO METADATA — after the article, return a JSON block:
 {
-  "seo_title": "max 60 chars, plain statement or implied question — use the same pronoun as the article (he/she/they), never I",
-  "meta_description": "140-155 chars, first sentence that pulls reader in, ends before resolution",
-  "focus_keyword": "2-4 words, long-tail emotional phrase",
+  "seo_title": "max 60 chars, plain statement or implied question. Use the same pronoun as the article (he/she/they), never I. This is the poetic title — make it stop someone scrolling.",
+  "subtitle": "max 70 chars, plain search-intent phrase that complements the title. No em dashes. No cleverness. Just the feeling someone would type into Google at 11pm. Example: 'Why Leaving a Job You Hate Does Not Always Feel Like Freedom'",
+  "meta_description": "3 short sentences, no em dashes, under 155 chars total. Sentence 1: the scene from the hook (plain fact). Sentence 2: the feeling the reader will recognise. Sentence 3: the invitation — 'this one is for you' or 'this is about that'. Example: 'She handed in her notice after twelve years. She expected relief. If you have ever gotten what you wanted and felt nothing, this one is for you.'",
+  "focus_keyword": "2-4 words, long-tail emotional phrase someone would actually search",
   "slug": "max 60 chars kebab-case keyword-rich",
-  "tags": ["3-5 tags mixing pillar keyword + emotion keyword + long-tail phrase"],
-  "image_prompt": "A single object or minimal scene that captures the emotional core of this specific article. No people, no faces, no text. Flat vector illustration, warm cream background, navy and muted gold accents, botanical minimalist style, soft edges, literary journal aesthetic, generous white space. Be specific to this story — not generic."
+  "tags": ["3-5 tags mixing pillar keyword + emotion keyword + long-tail phrase"]
 }"""
 
 
-def generate_article(story, pillar_name, recent_posts=None):
-    # Build avoidance context — all same-pillar, last 20 others
-    avoidance_block = ""
-    if recent_posts:
-        same_pillar = [p["title"] for p in recent_posts if p.get("pillar") == pillar_name]
-        other_pillars = [p["title"] for p in recent_posts if p.get("pillar") != pillar_name][-20:]
-
-        lines = []
-        if same_pillar:
-            lines.append(f"ALL previous posts in THIS pillar ({pillar_name}) — do NOT repeat these angles, emotions, or situations:")
-            for t in same_pillar:
-                lines.append(f"  - {t}")
-        if other_pillars:
-            lines.append("Recent posts across other pillars — avoid crossing into the same emotional territory:")
-            for t in other_pillars:
-                lines.append(f"  - {t}")
-
-        if lines:
-            avoidance_block = "\n\nMEMORY — AVOID REPEATING:\n" + "\n".join(lines) + "\n\nThis site has covered all of the above. Find a genuinely fresh angle."
-
+def generate_article(story, pillar_name):
+    """
+    Send story to Claude and get back full article + SEO metadata.
+    Returns dict with article and metadata, or None if failed.
+    """
     prompt = f"""Today's pillar: {pillar_name}
 
 Here is the story to write about:
@@ -124,14 +102,12 @@ TITLE: {story['title']}
 STORY:
 {story['body'][:2000]}
 
-SOURCE: {story['url']}{avoidance_block}
+SOURCE: {story['url']}
 
-Write the full article in The Flawed Seeker voice. Strip all identifiers — only the emotional core survives. Do NOT start with the title or any heading. Start directly with the first sentence of the story scene. After the article, return the SEO metadata as a JSON block wrapped in ```json and ```."""
+Write the full article in The Flawed Seeker voice. Strip all identifiers — only the emotional core survives. After the article, return the SEO metadata as a JSON block wrapped in ```json and ```."""
 
     print(f"\n[WRITER] Generating article for pillar: {pillar_name}")
     print(f"[WRITER] Story: {story['title'][:60]}")
-    if recent_posts:
-        print(f"[WRITER] Memory: {len(recent_posts)} posts loaded")
 
     for attempt in range(2):
         try:
@@ -147,10 +123,10 @@ Write the full article in The Flawed Seeker voice. Strip all identifiers — onl
             response_text = message.content[0].text
 
             if "```json" in response_text:
-                parts = response_text.split("```json")
+                parts        = response_text.split("```json")
                 article_text = parts[0].strip()
-                json_part = parts[1].split("```")[0].strip()
-                metadata = json.loads(json_part)
+                json_part    = parts[1].split("```")[0].strip()
+                metadata     = json.loads(json_part)
             else:
                 print(f"  [WRITER] No JSON metadata found — attempt {attempt + 1}")
                 continue
@@ -165,16 +141,16 @@ Write the full article in The Flawed Seeker voice. Strip all identifiers — onl
 
             print(f"  [WRITER] Article generated successfully")
             print(f"  [WRITER] SEO title: {metadata.get('seo_title', '')}")
-            print(f"  [WRITER] Image prompt: {metadata.get('image_prompt', '')[:80]}...")
+            print(f"  [WRITER] Subtitle: {metadata.get('subtitle', '')}")
 
             return {
-                "article": article_text,
-                "seo_title": metadata.get("seo_title", ""),
+                "article":          article_text,
+                "seo_title":        metadata.get("seo_title", ""),
+                "subtitle":         metadata.get("subtitle", ""),
                 "meta_description": metadata.get("meta_description", ""),
-                "focus_keyword": metadata.get("focus_keyword", ""),
-                "slug": metadata.get("slug", ""),
-                "tags": metadata.get("tags", []),
-                "image_prompt": metadata.get("image_prompt", ""),
+                "focus_keyword":    metadata.get("focus_keyword", ""),
+                "slug":             metadata.get("slug", ""),
+                "tags":             metadata.get("tags", []),
             }
 
         except Exception as e:
@@ -187,23 +163,19 @@ Write the full article in The Flawed Seeker voice. Strip all identifiers — onl
 if __name__ == "__main__":
     test_story = {
         "title": "I quit my job after 12 years and I don't know what I feel",
-        "body": "I handed in my resignation yesterday after 12 years at the same company. I thought I would feel relieved. I thought I would feel free. Instead I sat in my car in the parking lot for 45 minutes and just stared at the steering wheel. I don't know what I'm feeling. My hands were shaking when I submitted the email. My manager said 'okay' and that was it. Twelve years and that was it.",
-        "url": "https://example.com/test",
+        "body":  "I handed in my resignation yesterday after 12 years at the same company. I thought I would feel relieved. I thought I would feel free. Instead I sat in my car in the parking lot for 45 minutes and just stared at the steering wheel. I don't know what I'm feeling. My hands were shaking when I submitted the email. My manager said 'okay' and that was it. Twelve years and that was it.",
+        "url":   "https://example.com/test",
         "source": "test",
     }
 
-    test_recent = [
-        {"title": "She Quit After 12 Years and Felt Nothing", "pillar": "Burnout & Exhaustion"},
-        {"title": "He Lost His Job to Automation and Felt Relief", "pillar": "Burnout & Exhaustion"},
-        {"title": "He Watches the Clock Every Friday Afternoon", "pillar": "Relationships & Regret"},
-    ]
-
-    result = generate_article(test_story, "Burnout & Exhaustion", recent_posts=test_recent)
+    result = generate_article(test_story, "Burnout & Exhaustion")
     if result:
         print("\n--- ARTICLE ---")
         print(result["article"])
         print("\n--- METADATA ---")
-        print(f"Title: {result['seo_title']}")
-        print(f"Slug: {result['slug']}")
-        print(f"Tags: {result['tags']}")
-        print(f"Image prompt: {result['image_prompt']}")
+        print(f"Title:       {result['seo_title']}")
+        print(f"Subtitle:    {result['subtitle']}")
+        print(f"Description: {result['meta_description']}")
+        print(f"Keyword:     {result['focus_keyword']}")
+        print(f"Slug:        {result['slug']}")
+        print(f"Tags:        {result['tags']}")
