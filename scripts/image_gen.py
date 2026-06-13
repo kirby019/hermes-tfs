@@ -13,22 +13,22 @@ load_dotenv("/home/hermes/.env")
 
 CLIENT = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-PILLAR_OBJECTS = {
-    1: "a single wilting botanical stem in a simple vase, leaves beginning to curl downward",
-    2: "two chairs facing slightly away from each other, one tipped forward as if recently vacated",
-    3: "a dining table with one chair pulled slightly apart from the others, a single candle",
-    4: "an open window with light coming through, a folded piece of paper resting on the sill",
-    5: "a single lit candle against a dark background, soft halo of warm light, minimal",
-    6: "a delicate balance scale tipped slightly to one side, botanical elements on each tray",
-    7: "two teacups on a surface, one full and steaming, one empty and cold, soft morning light",
-    8: "a vintage compass with its needle pointing slightly off-center, botanical frame, soft navy tones",
-    9: "a winding path leading up a gentle hill that disappears into soft mist, minimal botanical border",
+PILLAR_STYLE = {
+    1: "wilting botanical elements, objects mid-fall or fading, warm ochre and brown tones",
+    2: "empty chairs or spaces, objects left behind, quiet domestic interiors, cool blues",
+    3: "family objects, dining or gathering spaces, a single empty seat, soft warm light",
+    4: "open windows, folded letters, light breaking through a gap, soft morning tones",
+    5: "a single candle or small flame, dark backgrounds, soft halos of light, navy tones",
+    6: "a balance scale, measured objects, careful arrangements, muted earth tones",
+    7: "two objects close but separate, one full and one empty, morning light, quiet rooms",
+    8: "a compass or watch, half-open doors, paths diverging, soft mist and navy blues",
+    9: "a winding path, a hilltop in mist, objects mid-journey, soft gold and sage tones",
 }
 
-STYLE_WRAPPER = "Flat vector illustration, warm cream background, navy and muted gold accents, {object}, botanical minimalist style, no people, no faces, no text, soft edges, literary journal aesthetic, generous white space"
+BASE_STYLE = "flat vector illustration, warm cream background, navy and muted gold accents, botanical minimalist style, no people, no faces, no text, soft edges, literary journal aesthetic, generous white space"
 
 
-def generate_image(pillar_number, today=None, custom_prompt=None):
+def generate_image(pillar_number, today=None, article_title=None):
     if today is None:
         today = date.today().isoformat()
 
@@ -38,16 +38,14 @@ def generate_image(pillar_number, today=None, custom_prompt=None):
         print(f"[IMAGE] Image already exists for today: {output_path}")
         return output_path
 
-    if custom_prompt:
-        # Use article-specific prompt from Claude
-        prompt = custom_prompt
-        print(f"\n[IMAGE] Generating image from article prompt")
-    else:
-        # Fall back to pillar default
-        pillar_object = PILLAR_OBJECTS.get(pillar_number, PILLAR_OBJECTS[1])
-        prompt = STYLE_WRAPPER.format(object=pillar_object)
-        print(f"\n[IMAGE] Generating image for pillar {pillar_number} (default)")
+    style = PILLAR_STYLE.get(pillar_number, PILLAR_STYLE[1])
 
+    if article_title:
+        prompt = f"A symbolic still life for a story titled: '{article_title}'. Visual mood: {style}. {BASE_STYLE}."
+    else:
+        prompt = f"A symbolic still life. Visual mood: {style}. {BASE_STYLE}."
+
+    print(f"\n[IMAGE] Generating image for: {article_title or 'pillar ' + str(pillar_number)}")
     print(f"[IMAGE] Prompt: {prompt[:100]}...")
 
     try:
@@ -55,7 +53,7 @@ def generate_image(pillar_number, today=None, custom_prompt=None):
             model="gpt-image-1",
             prompt=prompt,
             size="1024x1024",
-            quality="medium",
+            quality="standard",
             n=1,
         )
 
@@ -78,7 +76,7 @@ def get_fallback_image(pillar_number):
 
 
 if __name__ == "__main__":
-    result = generate_image(1, custom_prompt="a child's small backpack resting by a front door, untouched, soft evening light, botanical frame, flat vector illustration, warm cream background, navy and muted gold accents, no people, no faces, no text")
+    result = generate_image(1, article_title="He Quit After Twelve Years and Felt Nothing")
     if result:
         print(f"\n[IMAGE] Success: {result}")
     else:
