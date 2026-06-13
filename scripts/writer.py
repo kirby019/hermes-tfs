@@ -122,35 +122,37 @@ Write the full article in The Flawed Seeker voice. Strip all identifiers — onl
 
             response_text = message.content[0].text
 
+            # Split article and metadata
             if "```json" in response_text:
-                parts        = response_text.split("```json")
+                parts = response_text.split("```json")
                 article_text = parts[0].strip()
-                json_part    = parts[1].split("```")[0].strip()
-                metadata     = json.loads(json_part)
+                json_part = parts[1].split("```")[0].strip()
+                metadata = json.loads(json_part)
             else:
                 print(f"  [WRITER] No JSON metadata found — attempt {attempt + 1}")
                 continue
 
+            # Basic quality checks
             if "---" not in article_text:
                 print(f"  [WRITER] Missing companion section separator — attempt {attempt + 1}")
                 continue
 
-            if "\u2014" in article_text:
-                print(f"  [WRITER] Em dash found — attempt {attempt + 1}")
-                continue
+            if "—" in article_text:
+                print(f"  [WRITER] Em dash found — auto-fixing")
+                article_text = article_text.replace(" — ", ". ").replace("— ", ". ").replace(" —", ".").replace("—", ".")
 
             print(f"  [WRITER] Article generated successfully")
             print(f"  [WRITER] SEO title: {metadata.get('seo_title', '')}")
             print(f"  [WRITER] Subtitle: {metadata.get('subtitle', '')}")
 
             return {
-                "article":          article_text,
-                "seo_title":        metadata.get("seo_title", ""),
-                "subtitle":         metadata.get("subtitle", ""),
+                "article": article_text,
+                "seo_title": metadata.get("seo_title", ""),
+                "subtitle": metadata.get("subtitle", ""),
                 "meta_description": metadata.get("meta_description", ""),
-                "focus_keyword":    metadata.get("focus_keyword", ""),
-                "slug":             metadata.get("slug", ""),
-                "tags":             metadata.get("tags", []),
+                "focus_keyword": metadata.get("focus_keyword", ""),
+                "slug": metadata.get("slug", ""),
+                "tags": metadata.get("tags", []),
             }
 
         except Exception as e:
@@ -163,8 +165,8 @@ Write the full article in The Flawed Seeker voice. Strip all identifiers — onl
 if __name__ == "__main__":
     test_story = {
         "title": "I quit my job after 12 years and I don't know what I feel",
-        "body":  "I handed in my resignation yesterday after 12 years at the same company. I thought I would feel relieved. I thought I would feel free. Instead I sat in my car in the parking lot for 45 minutes and just stared at the steering wheel. I don't know what I'm feeling. My hands were shaking when I submitted the email. My manager said 'okay' and that was it. Twelve years and that was it.",
-        "url":   "https://example.com/test",
+        "body": "I handed in my resignation yesterday after 12 years at the same company. I thought I would feel relieved. I thought I would feel free. Instead I sat in my car in the parking lot for 45 minutes and just stared at the steering wheel. I don't know what I'm feeling. My hands were shaking when I submitted the email. My manager said 'okay' and that was it. Twelve years and that was it.",
+        "url": "https://example.com/test",
         "source": "test",
     }
 
@@ -173,9 +175,8 @@ if __name__ == "__main__":
         print("\n--- ARTICLE ---")
         print(result["article"])
         print("\n--- METADATA ---")
-        print(f"Title:       {result['seo_title']}")
-        print(f"Subtitle:    {result['subtitle']}")
+        print(f"Title: {result['seo_title']}")
         print(f"Description: {result['meta_description']}")
-        print(f"Keyword:     {result['focus_keyword']}")
-        print(f"Slug:        {result['slug']}")
-        print(f"Tags:        {result['tags']}")
+        print(f"Keyword: {result['focus_keyword']}")
+        print(f"Slug: {result['slug']}")
+        print(f"Tags: {result['tags']}")
