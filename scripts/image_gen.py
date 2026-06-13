@@ -1,11 +1,14 @@
 """
 image_gen.py — Image generator for Hermes
 Generates a unique illustration for each article using gpt-image-1.
+The article's opening scene drives the image — style varies randomly.
 """
 
 import openai
 import os
+import re
 import base64
+import random
 from datetime import date
 from dotenv import load_dotenv
 
@@ -13,22 +16,42 @@ load_dotenv("/home/hermes/.env")
 
 CLIENT = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-PILLAR_STYLE = {
-    1: "wilting botanical elements, objects mid-fall or fading, warm ochre and brown tones",
-    2: "empty chairs or spaces, objects left behind, quiet domestic interiors, cool blues",
-    3: "family objects, dining or gathering spaces, a single empty seat, soft warm light",
-    4: "open windows, folded letters, light breaking through a gap, soft morning tones",
-    5: "a single candle or small flame, dark backgrounds, soft halos of light, navy tones",
-    6: "a balance scale, measured objects, careful arrangements, muted earth tones",
-    7: "two objects close but separate, one full and one empty, morning light, quiet rooms",
-    8: "a compass or watch, half-open doors, paths diverging, soft mist and navy blues",
-    9: "a winding path, a hilltop in mist, objects mid-journey, soft gold and sage tones",
-}
+ART_STYLES = [
+    "watercolor illustration, soft washes, gentle bleeds, painterly",
+    "2D flat vector illustration, clean lines, bold shapes, minimal",
+    "ink sketch, loose expressive linework, editorial illustration style",
+    "gouache painting, flat opaque colors, graphic and bold",
+    "pencil drawing, soft graphite shading, hand-drawn feel",
+    "linocut print style, high contrast, textured, graphic",
+    "loose brush painting, gestural marks, ink and wash",
+]
 
-BASE_STYLE = "flat vector illustration, warm cream background, navy and muted gold accents, botanical minimalist style, no people, no faces, no text, soft edges, literary journal aesthetic, generous white space"
+CONSTANT_STYLE = "no photorealism, no 3D rendering, no real people, no photographs, no text in image, illustrated style only, warm cream and navy color palette, literary journal aesthetic, generous white space"
 
 
-def generate_image(pillar_number, today=None, article_title=None):
+def extract_opening_scene(article_text):
+    """Pull the first paragraph — the most visual part of the article."""
+    text = re.sub(r'\*?Inspired by a real story shared anonymously online\.\*?', '', article_text).strip()
+    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+    if paragraphs:
+        scene = paragraphs[0]
+        if len(scene) > 200:
+            trimmed = scene[:200]
+            last_period = max(trimmed.rfind('.'), trimmed.rfind('!'), trimmed.rfind('?'))
+            if last_period > 80:
+                scene = trimmed[:last_period + 1]
+            else:
+                scene = trimmed
+        return scene
+    return ""
+
+
+def generate_image(pillar_number, today=None, article_title=None, article_text=None):
+    """
+    Generate an illustration for today's article.
+    Uses the article's opening scene as the image prompt.
+    Returns path to saved image, or None if failed.
+    """
     if today is None:
         today = date.today().isoformat()
 
@@ -38,15 +61,24 @@ def generate_image(pillar_number, today=None, article_title=None):
         print(f"[IMAGE] Image already exists for today: {output_path}")
         return output_path
 
-    style = PILLAR_STYLE.get(pillar_number, PILLAR_STYLE[1])
+    art_style = random.choice(ART_STYLES)
 
-    if article_title:
-        prompt = f"A symbolic still life for a story titled: '{article_title}'. Visual mood: {style}. {BASE_STYLE}."
+    if article_text:
+        scene = extract_opening_scene(article_text)
+        if scene:
+            prompt = f"A symbolic still life inspired by this story: \"{scene}\". Style: {art_style}. {CONSTANT_STYLE}."
+        elif article_title:
+            prompt = f"A symbolic still life for a story titled: '{article_title}'. Style: {art_style}. {CONSTANT_STYLE}."
+        else:
+            prompt = f"A symbolic still life. Style: {art_style}. {CONSTANT_STYLE}."
+    elif article_title:
+        prompt = f"A symbolic still life for a story titled: '{article_title}'. Style: {art_style}. {CONSTANT_STYLE}."
     else:
-        prompt = f"A symbolic still life. Visual mood: {style}. {BASE_STYLE}."
+        prompt = f"A symbolic still life. Style: {art_style}. {CONSTANT_STYLE}."
 
     print(f"\n[IMAGE] Generating image for: {article_title or 'pillar ' + str(pillar_number)}")
-    print(f"[IMAGE] Prompt: {prompt[:100]}...")
+    print(f"[IMAGE] Style: {art_style}")
+    print(f"[IMAGE] Prompt: {prompt[:120]}...")
 
     try:
         response = CLIENT.images.generate(
@@ -69,6 +101,7 @@ def generate_image(pillar_number, today=None, article_title=None):
 
 
 def get_fallback_image(pillar_number):
+    """Return a default pillar image if generation fails."""
     fallback = f"/home/hermes/images/generated/fallback-{pillar_number}.png"
     if os.path.exists(fallback):
         return fallback
@@ -76,7 +109,12 @@ def get_fallback_image(pillar_number):
 
 
 if __name__ == "__main__":
-    result = generate_image(1, article_title="He Quit After Twelve Years and Felt Nothing")
+    test_article = """She spent twelve years in the same building. Same desk, same login, same coffee machine that broke every third Tuesday. Then yesterday she submitted the email. Her hands shook. She expected relief. She expected freedom. Instead she sat in her car for forty-five minutes and stared at the steering wheel.
+
+Her manager said okay.
+
+That was it."""
+    result = generate_image(1, article_title="She Quit After 12 Years and Felt Nothing", article_text=test_article)
     if result:
         print(f"\n[IMAGE] Success: {result}")
     else:
