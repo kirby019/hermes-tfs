@@ -1,49 +1,45 @@
 """
-run.py — Hermes orchestrator
-Runs the full daily pipeline: scrape → write → image → pin → publish → pinterest
+run.py — Hermes daily pipeline
+Runs once per day via cron. Scrapes a story, writes the article,
+generates the image, publishes to WordPress, renders the YouTube video,
+and uploads it — all in one shot.
 """
 
 import json
 import os
 import sys
+import traceback
 from datetime import date
 
-sys.path.insert(0, "/home/hermes/scripts")
+BASE_DIR    = "/home/hermes"
+SCRIPTS_DIR = os.path.join(BASE_DIR, "repo/scripts")
+STATE_FILE  = os.path.join(BASE_DIR, "state.json")
+LOG_DIR     = os.path.join(BASE_DIR, "logs")
 
-from scraper import scrape
-from writer import generate_article
-from image_gen import generate_image
-from pin_gen import generate_pin
-from wp_publish import publish_post, fetch_all_titles
-from pinterest import post_pin
+sys.path.insert(0, SCRIPTS_DIR)
 
-STATE_FILE = "/home/hermes/state.json"
-LOG_DIR = "/home/hermes/logs"
-MAX_STORY_ATTEMPTS = 3
+from scraper         import scrape, PILLAR_NAMES
+from writer          import generate_article
+from image_gen       import generate_image, get_fallback_image
+from wp_publish      import publish_post
+from video_script    import generate_video_script, save_script
+from tts_gen         import generate_voiceover
+from music_gen       import get_music_for_video
+from video_assembler import make_video
+from youtube_upload  import upload_video
 
-PILLAR_NAMES = {
-    1: "Burnout & Exhaustion",
-    2: "Relationships & Regret",
-    3: "Family & Belonging",
-    4: "Forgiveness",
-    5: "Faith & Doubt",
-    6: "Money & Enough",
-    7: "Friendship & Loneliness",
-    8: "Mid-life Drift",
-    9: "Ambition & Peace",
+DEFAULT_STATE = {
+    "last_run": None,
+    "next_pillar": 1,
+    "posts_published": 0,
 }
 
 
 def load_state():
     if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, "r") as f:
+        with open(STATE_FILE) as f:
             return json.load(f)
-    return {
-        "last_run": None,
-        "next_pillar": 1,
-        "posts_published": 0,
-        "pillar_rotation": [1, 2, 3, 4, 5, 6, 7, 8, 9],
-    }
+    return DEFAULT_STATE.copy()
 
 
 def save_state(state):
@@ -51,135 +47,209 @@ def save_state(state):
         json.dump(state, f, indent=2)
 
 
-def save_log(today, log_data):
+def advance_pillar(state):
+    current = state.get("next_pillar", 1)
+    state["next_pillar"] = (current % 9) + 1
+    return state
+
+
+def write_log(today, log):
     os.makedirs(LOG_DIR, exist_ok=True)
-    log_path = f"{LOG_DIR}/{today}.json"
-    with open(log_path, "w") as f:
-        json.dump(log_data, f, indent=2)
-    print(f"[RUN] Log saved: {log_path}")
+    path = os.path.join(LOG_DIR, f"{today}.json")
+    with open(path, "w") as f:
+        json.dump(log, f, indent=2, ensure_ascii=False)
+    print(f"[LOG] {path}")
+
+
+def abort(state, log, today, post_url, reason):
+    print(f"\n[ABORT] {reason}")
+    log["errors"].append(reason)
+    state = advance_pillar(state)
+    state["last_run"] = today
+    state["posts_published"] = state.get("posts_published", 0) + (1 if post_url else 0)
+    save_state(state)
+    write_log(today, log)
+    sys.exit(1)
 
 
 def main():
     today = date.today().isoformat()
-    state = load_state()
+    print(f"\n{'='*60}\nHERMES — {today}\n{'='*60}\n")
 
-    print("=" * 50)
-    print(f"[RUN] Hermes starting — {today}")
-    print("=" * 50)
+    state       = load_state()
+    pillar_num  = state.get("next_pillar", 1)
+    pillar_name = PILLAR_NAMES.get(pillar_num, "Burnout & Exhaustion")
+    post_url    = ""
 
-    pillar_number = state.get("next_pillar", 1)
-    pillar_name = PILLAR_NAMES.get(pillar_number, "Burnout & Exhaustion")
-    print(f"[RUN] Today's pillar: {pillar_name} (#{pillar_number})")
+    log = {"date": today, "pillar": pillar_name, "steps": {}, "errors": []}
+    print(f"[PIPELINE] Pillar {pillar_num}: {pillar_name}\n")
 
-    log = {
-        "date": today,
-        "pillar": pillar_name,
-        "pillar_number": pillar_number,
-        "steps": {},
-        "story_attempts": 0,
-    }
+    # 1 — Scrape
+    print("[1/9] Scraping story...")
+    try:
+        candidates = scrape(pillar_num)
+        if not candidates:
+            abort(state, log, today, post_url, "No suitable stories found.")
+        if isinstance(candidates, dict):
+            candidates = [candidates]
+        log["steps"]["scrape"] = "ok"
+        print(f"[SCRAPE] {len(candidates)} candidates ready")
+    except Exception as e:
+        log["steps"]["scrape"] = "error"
+        abort(state, log, today, post_url, f"scrape: {e}")
 
-    # Step 2a: Fetch all existing post titles from WordPress for memory
-    print(f"\n[RUN] Step 2a: Loading post memory from WordPress...")
-    all_existing_posts = fetch_all_titles()
-    log["steps"]["memory"] = f"{len(all_existing_posts)} posts loaded"
-
-    # Steps 1 + 2b: Scrape and write — retry with fresh story if writer fails
+    # 2 — Generate article (try each candidate until one passes)
+    print("\n[2/9] Generating article...")
     article_data = None
-    tried_urls = []
-
-    for attempt in range(1, MAX_STORY_ATTEMPTS + 1):
-        print(f"\n[RUN] Step 1: Scraping story (attempt {attempt}/{MAX_STORY_ATTEMPTS})...")
-        story = scrape(pillar_number)
-
-        if not story:
-            print("[RUN] No story found — aborting")
-            log["steps"]["scrape"] = "failed"
-            save_log(today, log)
-            return
-
-        # Skip stories we already tried
-        if story["url"] in tried_urls:
-            print(f"[RUN] Same story returned — skipping")
-            continue
-
-        tried_urls.append(story["url"])
-        log["steps"][f"scrape_attempt_{attempt}"] = story["url"]
-        log["story_attempts"] = attempt
-        print(f"[RUN] Story found: {story['title'][:60]}")
-
-        print(f"\n[RUN] Step 2b: Generating article (attempt {attempt}/{MAX_STORY_ATTEMPTS})...")
-        article_data = generate_article(story, pillar_name, recent_posts=all_existing_posts)
-
-        if article_data:
-            print(f"[RUN] Article ready: {article_data['seo_title']}")
-            log["steps"]["write"] = article_data["seo_title"]
-            break
-        else:
-            print(f"[RUN] Article generation failed — trying a different story...")
-            log["steps"][f"write_attempt_{attempt}"] = "failed"
+    story = None
+    for i, candidate in enumerate(candidates):
+        print(f"[WRITER] Trying candidate {i+1}/{len(candidates)}: {candidate['title'][:60]}")
+        try:
+            result = generate_article(candidate, pillar_name)
+            if result:
+                article_data = result
+                story = candidate
+                break
+        except Exception as e:
+            print(f"[WRITER] Candidate {i+1} error: {e}")
 
     if not article_data:
-        print("[RUN] All story attempts failed — aborting")
-        log["steps"]["write"] = "failed after 3 attempts"
-        save_log(today, log)
-        return
+        abort(state, log, today, post_url, "All candidates failed article generation.")
+    log["steps"]["article"] = "ok"
+    log["story_url"] = story.get("url", "")
+    log["article_title"] = article_data.get("seo_title", "")
+    print(f"[WRITER] {article_data['seo_title']}")
 
-    # Step 3: Generate image
-    print(f"\n[RUN] Step 3: Generating image...")
-    custom_prompt = article_data.get("image_prompt", "")
-    image_path = generate_image(pillar_number, today, custom_prompt=custom_prompt if custom_prompt else None)
-    log["steps"]["image"] = image_path or "failed"
+    # 3 — Generate image
+    print("\n[3/9] Generating image...")
+    try:
+        image_path = generate_image(pillar_num, today)
+        if not image_path:
+            image_path = get_fallback_image(pillar_num)
+            log["steps"]["image"] = "fallback"
+        else:
+            log["steps"]["image"] = "ok"
+        log["image_path"] = image_path or ""
+        print(f"[IMAGE] {image_path}")
+    except Exception as e:
+        image_path = get_fallback_image(pillar_num)
+        log["errors"].append(f"image_gen: {e}")
+        log["steps"]["image"] = "fallback"
+        log["image_path"] = image_path or ""
+        print(f"[IMAGE] Fallback after error: {e}")
 
-    # Step 4: Generate Pinterest pin
-    print(f"\n[RUN] Step 4: Generating Pinterest pin...")
-    pin_path = None
-    if image_path:
-        pin_path = generate_pin(article_data["seo_title"], image_path, today)
-        log["steps"]["pin"] = pin_path or "failed"
+    # 4 — Publish to WordPress
+    print("\n[4/9] Publishing to WordPress...")
+    try:
+        post_url = publish_post(article_data, pillar_name, image_path, today) or ""
+        if post_url:
+            log["steps"]["wordpress"] = "ok"
+            log["post_url"] = post_url
+            print(f"[WP] {post_url}")
+        else:
+            log["steps"]["wordpress"] = "failed"
+            log["errors"].append("WordPress publish failed — video pipeline continuing.")
+            print("[WP] Publish failed. Continuing with video pipeline.")
+    except Exception as e:
+        log["steps"]["wordpress"] = "error"
+        log["errors"].append(f"wordpress: {e}")
+        print(f"[WP] ERROR (continuing): {e}")
 
-    # Step 5: Publish to WordPress
-    print(f"\n[RUN] Step 5: Publishing to WordPress...")
-    post_url = publish_post(article_data, pillar_name, image_path, today)
-    if not post_url:
-        print("[RUN] WordPress publish failed — aborting")
-        log["steps"]["publish"] = "failed"
-        save_log(today, log)
-        return
-    log["steps"]["publish"] = post_url
-    print(f"[RUN] Post live: {post_url}")
+    # 5 — Generate video script
+    print("\n[5/9] Generating video script...")
+    script_dir  = os.path.join(BASE_DIR, "video_scripts")
+    script_path = os.path.join(script_dir, f"{today}.json")
+    os.makedirs(script_dir, exist_ok=True)
+    try:
+        script_text = generate_video_script(
+            article_data["seo_title"],
+            article_data["article"],
+            pillar_name,
+        )
+        save_script(script_text, script_path)
+        log["steps"]["video_script"] = "ok"
+        print(f"[SCRIPT] {script_path}")
+    except Exception as e:
+        log["steps"]["video_script"] = "error"
+        abort(state, log, today, post_url, f"video_script: {e}")
 
-    # Step 6: Post to Pinterest
-    print(f"\n[RUN] Step 6: Posting to Pinterest...")
-    pinterest_result = post_pin(
-        article_title=article_data["seo_title"],
-        meta_description=article_data["meta_description"],
-        post_url=post_url,
-        pin_image_path=pin_path,
-        pillar_name=pillar_name,
-    )
-    if pinterest_result:
-        log["steps"]["pinterest"] = pinterest_result
-    else:
-        log["steps"]["pinterest"] = "failed — retry when Standard access approved"
-        print("[RUN] Pinterest failed — logged for retry")
+    # 6 — TTS voiceover
+    print("\n[6/9] Generating voiceover...")
+    tts_dir  = os.path.join(BASE_DIR, "tts")
+    tts_path = os.path.join(tts_dir, f"{today}.mp3")
+    os.makedirs(tts_dir, exist_ok=True)
+    try:
+        _, voice_duration = generate_voiceover(script_path, tts_path)
+        log["steps"]["tts"] = "ok"
+        log["voice_duration_s"] = round(voice_duration)
+        print(f"[TTS] {tts_path}  ({voice_duration:.0f}s)")
+    except Exception as e:
+        log["steps"]["tts"] = "error"
+        abort(state, log, today, post_url, f"tts: {e}")
 
-    # Update state
-    next_pillar = (pillar_number % 9) + 1
+    # 7 — Background music
+    print("\n[7/9] Getting background music...")
+    music_path = os.path.join(tts_dir, f"{today}_music.mp3")
+    try:
+        music_out = get_music_for_video(pillar_name, voice_duration, music_path)
+        log["steps"]["music"] = "ok"
+        print(f"[MUSIC] {music_out}")
+    except Exception as e:
+        log["steps"]["music"] = "error"
+        abort(state, log, today, post_url, f"music: {e}")
+
+    # 8 — Render video
+    print("\n[8/9] Rendering video...")
+    video_dir  = os.path.join(BASE_DIR, "videos")
+    video_path = os.path.join(video_dir, f"{today}.mp4")
+    os.makedirs(video_dir, exist_ok=True)
+    try:
+        make_video(
+            script_path    = script_path,
+            voiceover_path = tts_path,
+            music_path     = music_out,
+            image_path     = image_path,
+            output_path    = video_path,
+        )
+        log["steps"]["video"] = "ok"
+        log["video_path"] = video_path
+        print(f"[VIDEO] {video_path}")
+    except Exception as e:
+        traceback.print_exc()
+        log["steps"]["video"] = "error"
+        abort(state, log, today, post_url, f"video: {e}")
+
+    # 9 — Upload to YouTube
+    print("\n[9/9] Uploading to YouTube...")
+    try:
+        video_id, youtube_url = upload_video(
+            video_path    = video_path,
+            article_title = article_data["seo_title"],
+            article_url   = post_url,
+            pillar_name   = pillar_name,
+            thumbnail_path= image_path,
+        )
+        log["steps"]["youtube"] = "ok"
+        log["youtube_url"] = youtube_url
+        print(f"[YOUTUBE] {youtube_url}")
+    except Exception as e:
+        log["steps"]["youtube"] = "error"
+        log["errors"].append(f"youtube: {e}")
+        print(f"[YOUTUBE] ERROR (non-fatal): {e}")
+
+    # Advance pillar and save state
+    state = advance_pillar(state)
     state["last_run"] = today
-    state["next_pillar"] = next_pillar
-    state["posts_published"] = state.get("posts_published", 0) + 1
+    state["posts_published"] = state.get("posts_published", 0) + (1 if post_url else 0)
     save_state(state)
+    write_log(today, log)
 
-    save_log(today, log)
-
-    print("\n" + "=" * 50)
-    print(f"[RUN] Hermes complete!")
-    print(f"[RUN] Article: {article_data['seo_title']}")
-    print(f"[RUN] Post: {post_url}")
-    print(f"[RUN] Story attempts: {log['story_attempts']}")
-    print(f"[RUN] Posts published total: {state['posts_published']}")
-    print("=" * 50)
+    print(f"\n{'='*60}\nDONE — {today}")
+    if log["errors"]:
+        print(f"Non-fatal errors ({len(log['errors'])}):")
+        for e in log["errors"]:
+            print(f"  • {e}")
+    print(f"{'='*60}\n")
 
 
 if __name__ == "__main__":
