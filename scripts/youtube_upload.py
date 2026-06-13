@@ -7,7 +7,7 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from dotenv import load_dotenv
 
-load_dotenv("/home/hermes/.env")
+load_dotenv()
 
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 
@@ -63,22 +63,23 @@ def upload_video(video_path, article_title, article_url, pillar_name,
     print(f"Uploading: {os.path.basename(video_path)}")
 
     youtube = get_youtube_client()
-    tags    = BASE_TAGS + CATEGORY_TAGS.get(pillar_name, [])
+
+    tags = BASE_TAGS + CATEGORY_TAGS.get(pillar_name, [])
 
     description = build_description(article_title, article_url, pillar_name)
 
     body = {
         "snippet": {
-            "title":           article_title,
-            "description":     description,
-            "tags":            tags,
-            "categoryId":      "22",
+            "title": article_title,
+            "description": description,
+            "tags": tags,
+            "categoryId": "22",  # People & Blogs
             "defaultLanguage": "en",
         },
         "status": {
-            "privacyStatus":          "public" if not publish_at else "private",
+            "privacyStatus": "public" if not publish_at else "private",
             "selfDeclaredMadeForKids": False,
-            "publishAt":               publish_at,
+            "publishAt": publish_at,
         },
     }
 
@@ -89,14 +90,14 @@ def upload_video(video_path, article_title, article_url, pillar_name,
         chunksize=1024 * 1024 * 5,
     )
 
-    request  = youtube.videos().insert(
+    request = youtube.videos().insert(
         part="snippet,status",
         body=body,
         media_body=media,
     )
 
     response = None
-    retry    = 0
+    retry = 0
     while response is None:
         try:
             status, response = request.next_chunk()
@@ -110,7 +111,7 @@ def upload_video(video_path, article_title, article_url, pillar_name,
             print(f"  Retrying ({retry}/3)...")
             time.sleep(5)
 
-    video_id  = response["id"]
+    video_id = response["id"]
     video_url = f"https://www.youtube.com/watch?v={video_id}"
     print(f"Uploaded: {video_url}")
 
