@@ -205,7 +205,6 @@ def get_whisper_captions(voiceover_path):
                 "end": words[-1].end,
             })
 
-        # Extend each phrase to fill gap to next, minimum 1.5s
         timed = []
         for i, phrase in enumerate(phrases):
             natural_dur = phrase["end"] - phrase["start"]
@@ -273,7 +272,6 @@ def make_video(script_path, voiceover_path, music_path, image_path, output_path)
     voice_audio    = AudioFileClip(voiceover_path)
     voice_duration = voice_audio.duration
 
-    # Try Whisper sync — fall back to even distribution if it fails
     print("Getting caption timestamps...")
     timed = get_whisper_captions(voiceover_path)
 
@@ -299,7 +297,11 @@ def make_video(script_path, voiceover_path, music_path, image_path, output_path)
     print(f"Captions: {len(timed) - 1}, total {total_dur:.0f}s")
 
     print("Loading article image...")
-    base_img = load_article_image(image_path)
+    if image_path and os.path.exists(image_path):
+        base_img = load_article_image(image_path)
+    else:
+        print("[VIDEO] No image — using solid background")
+        base_img = Image.new("RGBA", (W, H), (*BG, 255))
 
     music_audio = AudioFileClip(music_path)
     if music_audio.duration < total_dur:
