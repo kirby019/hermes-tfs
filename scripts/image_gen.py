@@ -85,7 +85,7 @@ def generate_image(pillar_number, today=None, article_title=None, article_text=N
             model="gpt-image-1",
             prompt=prompt,
             size="1024x1024",
-            quality="standard",
+            quality="medium",
             n=1,
         )
 
